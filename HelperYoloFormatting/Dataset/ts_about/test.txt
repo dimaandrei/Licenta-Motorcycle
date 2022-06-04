@@ -1,0 +1,3 @@
+#Sample
+/home/ix_andrei/Documents/Licenta/licenta-git/Yolo(v3-v4)/Dataset/test_yolo_format_data/00876.jpg
+/home/ix_andrei/Documents/Licenta/licenta-git/Yolo(v3-v4)/Dataset/test_yolo_format_data/00771.jpg

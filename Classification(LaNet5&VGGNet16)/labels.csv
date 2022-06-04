@@ -1,0 +1,16 @@
+ClassId,Name
+0,Speed limit (30km/h)
+1,Speed limit (50km/h)
+2,Speed limit (70km/h)
+3,Priority road
+4,Yield
+5,Stop
+6,No vechiles
+7,No entry
+8,Turn right ahead
+9,Turn left ahead
+10,Ahead only
+11,Go straight or right
+12,Go straight or left
+13,Keep right
+14,Keep left
