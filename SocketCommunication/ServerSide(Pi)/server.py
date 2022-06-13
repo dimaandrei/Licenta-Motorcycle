@@ -26,10 +26,13 @@ class StreamingOutput():
 
 
 class SingleTCPHandler(socketserver.BaseRequestHandler):
+    payload_size = struct.calcsize("Q")
+
     def handle(self):
         srcaddr, srcport = self.request.getpeername()
         print("Connection from {}:{}".format(srcaddr, srcport))
-
+        self.thread = threading.Thread(target=self.recieveData, args=[self.request])
+        self.thread.start()
         # handler(self.request, fakeport)
         while True:
             with output.condition:
@@ -38,6 +41,29 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
                 a = pickle.dumps(frame)
                 message = struct.pack("Q",len(a))+a
                 self.request.sendall(message)
+
+    def recieveData(self, request):
+        self.recievingData = True
+        data = b''
+
+        while self.recievingData:
+            print("Waiting for data")
+            while len(data) < self.payload_size:
+                packet = request.recv(256)
+                if not packet: break
+                data+=packet
+                
+            packed_msg_size = data[:self.payload_size]
+            data = data[self.payload_size:]
+            msg_size = struct.unpack("Q",packed_msg_size)[0]
+
+            while len(data) < msg_size:
+                data += request.recv(256)
+
+            command = data[:msg_size]
+            data = data[msg_size:]
+            print(command)
+
 
 class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
@@ -56,6 +82,7 @@ def cameraThread():
         camera.start_recording(output, format='mjpeg')
         try:
             address = ('192.168.0.187', 10050)
+            #address = ('192.168.0.139', 10050)
             server = StreamingServer(address, SingleTCPHandler)
             server.serve_forever()
         finally:
