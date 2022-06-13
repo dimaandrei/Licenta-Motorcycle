@@ -5,7 +5,10 @@ import socketserver
 import pickle
 import struct
 import threading
+import serial
+import time
 from threading import Condition
+from multiprocessing import Process, Queue, Event
 
 class StreamingOutput():
     def __init__(self):
@@ -23,6 +26,53 @@ class StreamingOutput():
                 self.condition.notify_all()
             self.buffer.seek(0)
         return self.buffer.write(buf)
+
+
+class SerialComm(Process):
+    def __init__(self, arduino_comm_q, serial_port='/dev/serial0', baud_rate =115200):
+        super(SerialComm, self).__init__()
+        self.arduino_comm_q = arduino_comm_q
+        self.serial_comm = serial.Serial(serial_port, baud_rate, timeout=1)
+
+        # Clear DTR, wait one second, flush input, then set DTR.
+
+        self.serial_comm.setDTR(False)
+        time.sleep(1)
+        self.serial_comm.flushInput()
+        self.serial_comm.setDTR(True)
+        time.sleep(2)
+        self.run_flag=True
+        
+    def run(self) -> None:
+        self.serial_comm.reset_input_buffer()
+        while self.run_flag:
+            if self.arduino_comm_q.empty():
+                pass
+            
+            command = self.arduino_comm_q.get()
+            if command == 'stop':
+                pass
+                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
+            elif command == 'max-30km/h':
+                pass
+                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
+            elif command == 'max-70km/h':
+                pass
+                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
+            elif command == 'turn-right-ahead':
+                pass
+                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
+            elif command == 'turn-left-ahead':
+                pass
+                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
+            else:
+                print("Unknown command!")
+
+
+    def terminate(self) -> None:
+        self.run_flag=False
+        super(SerialComm, self).terminate()
+
 
 
 class SingleTCPHandler(socketserver.BaseRequestHandler):
