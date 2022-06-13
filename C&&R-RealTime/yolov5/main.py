@@ -1,27 +1,25 @@
 import os
+import pickle
+import socket
+import struct
 import sys
 import threading
+from multiprocessing import Process, Queue, Event
 from pathlib import Path
+from signal import signal, SIGINT
+from sys import exit
 
 import numpy as np
 import tensorflow as tf
 import torch
 import torch.backends.cudnn as cudnn
 
-import socket
-import pickle
-import struct
-
 from models.common import DetectMultiBackend
-from utils.dataloaders import LoadStreams, LoadImages
+from utils.augmentations import letterbox
 from utils.general import (check_img_size, cv2,
                            non_max_suppression, scale_coords)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device
-from utils.augmentations import letterbox
-from multiprocessing import Process, Queue, Event
-from signal import signal, SIGINT
-from sys import exit
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -99,7 +97,8 @@ class SocketProcess(Process):
         while True:  # shared condition here!!
             while len(data) < payload_size:
                 packet = self.client_socket.recv(4 * 1024)
-                if not packet: break
+                if not packet:
+                    break
                 data += packet
                 # print(f'{len(data)}-{payload_size}')
 
@@ -129,40 +128,6 @@ class SocketProcess(Process):
         self.runSendThread = False
         self.send_thread.join()
         super(SocketProcess, self).terminate()
-
-
-# def processSocketReceiver(frames_queue, commands_queue, host_ip='192.168.0.187', port=10050):
-#     # Client socket
-#     # create an INET, streaming socket :
-#     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#     closeSendEvent = Event()
-#     # now connect to the web server on the specified port number
-#     client_socket.connect((host_ip, port))
-#     data = b''
-#     # Q: unsigned long long integer(8 bytes)
-#     payload_size = struct.calcsize("Q")
-#     send_thread = threading.Thread(target=threadToWaitForPredictionAndSend,
-#                                    args=[client_socket, commands_queue, closeSendEvent])
-#     send_thread.start()
-#     while True:  # shared condition here!!
-#         while len(data) < payload_size:
-#             packet = client_socket.recv(4 * 1024)
-#             if not packet: break
-#             data += packet
-#             # print(f'{len(data)}-{payload_size}')
-#
-#         packed_msg_size = data[:payload_size]
-#         data = data[payload_size:]
-#         msg_size = struct.unpack("Q", packed_msg_size)[0]
-#
-#         while len(data) < msg_size:
-#             data += client_socket.recv(4 * 1024)
-#         frame_data = data[:msg_size]
-#         data = data[msg_size:]
-#         if frames_queue.full():
-#             # we don't care about older frames if the queue is full
-#             frames_queue.get_nowait()
-#         frames_queue.put(frame_data)
 
 
 @torch.no_grad()
@@ -256,7 +221,6 @@ event = Event()
 
 
 def handler(signal_received, frame):
-    # Handle any cleanup here
     event.set()
 
 
@@ -268,7 +232,7 @@ def main():
     commands_q = Queue()
 
     socketReceiver_process = SocketProcess(frames_queue=frames_q,
-                                           commands_queue=commands_q)  # Process(target=processSocketReceiver, args=(frames_q, commands_q))
+                                           commands_queue=commands_q)
     classifier_process = Process(target=detectAndClassifySign, args=(frames_q, commands_q))
 
     socketReceiver_process.start()
