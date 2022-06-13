@@ -52,7 +52,7 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
                 packet = request.recv(256)
                 if not packet: break
                 data+=packet
-                
+
             packed_msg_size = data[:self.payload_size]
             data = data[self.payload_size:]
             msg_size = struct.unpack("Q",packed_msg_size)[0]
@@ -76,7 +76,7 @@ output = StreamingOutput()
 
 def cameraThread():
     global output
-    with picamera.PiCamera(resolution='640x480', framerate=24) as camera:
+    with picamera.PiCamera(resolution='320x256', framerate=24) as camera:
         #Uncomment the next line to change your Pi's Camera rotation (in degrees)
         camera.rotation = 180
         camera.start_recording(output, format='mjpeg')
