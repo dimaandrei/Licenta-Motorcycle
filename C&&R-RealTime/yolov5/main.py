@@ -45,35 +45,35 @@ def preprocessing(in_img):
 
 def getClassName(classNo):
     if classNo == 0:
-        return 'Speed Limit 30 km/h'
+        return 'max-30km/h'
     elif classNo == 1:
-        return 'Speed Limit 50 km/h'
+        return 'max-50km/h'
     elif classNo == 2:
-        return 'Speed Limit 70 km/h'
+        return 'max-70km/h'
     elif classNo == 3:
-        return 'Priority road'
+        return 'priority-road'
     elif classNo == 4:
-        return 'Yield'
+        return 'yield'
     elif classNo == 5:
-        return 'Stop'
+        return 'stop'
     elif classNo == 6:
-        return 'No vechiles'
+        return 'no-vehicles'
     elif classNo == 7:
-        return 'No entry'
+        return 'no-entry'
     elif classNo == 8:
-        return 'Turn right ahead'
+        return 'turn-right-ahead'
     elif classNo == 9:
-        return 'Turn left ahead'
+        return 'turn-left-ahead'
     elif classNo == 10:
-        return 'Ahead only'
+        return 'ahead-only'
     elif classNo == 11:
-        return 'Go straight or right'
+        return 'go-straight-or-right'
     elif classNo == 12:
-        return 'Go straight or left'
+        return 'go-straight-or-left'
     elif classNo == 13:
-        return 'Keep right'
+        return 'keep-right'
     elif classNo == 14:
-        return 'Keep left'
+        return 'keep-left'
 
 
 class SocketProcess(Process):
