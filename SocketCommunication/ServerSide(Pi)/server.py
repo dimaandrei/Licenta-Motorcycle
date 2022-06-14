@@ -9,6 +9,9 @@ import serial
 import time
 from threading import Condition
 from multiprocessing import Process, Queue, Event
+from signal import signal, SIGINT
+from sys import exit
+
 
 class StreamingOutput():
     def __init__(self):
@@ -29,7 +32,7 @@ class StreamingOutput():
 
 
 class SerialComm(Process):
-    def __init__(self, arduino_comm_q, serial_port='/dev/serial0', baud_rate =115200):
+    def __init__(self, arduino_comm_q, serial_port='/dev/serial0', baud_rate=115200):
         super(SerialComm, self).__init__()
         self.arduino_comm_q = arduino_comm_q
         self.serial_comm = serial.Serial(serial_port, baud_rate, timeout=1)
@@ -47,32 +50,18 @@ class SerialComm(Process):
         self.serial_comm.reset_input_buffer()
         while self.run_flag:
             if self.arduino_comm_q.empty():
-                pass
-            
-            command = self.arduino_comm_q.get()
-            if command == 'stop':
-                pass
-                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
-            elif command == 'max-30km/h':
-                pass
-                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
-            elif command == 'max-70km/h':
-                pass
-                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
-            elif command == 'turn-right-ahead':
-                pass
-                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
-            elif command == 'turn-left-ahead':
-                pass
-                self.serial_comm.write(b"Hello from Raspberry Pi!\n")
-            else:
-                print("Unknown command!")
+                continue
 
+            command = self.arduino_comm_q.get()
+            print(command)
+            if len(command) == 2:
+                self.serial_comm.write(command)
+            else:
+                print("Something went wrong! Invalid command!")
 
     def terminate(self) -> None:
         self.run_flag=False
         super(SerialComm, self).terminate()
-
 
 
 class SingleTCPHandler(socketserver.BaseRequestHandler):
@@ -112,7 +101,9 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
 
             command = data[:msg_size]
             data = data[msg_size:]
-            print(command)
+            if commands_queue.full():
+                commands_queue.get_nowait()
+            commands_queue.put(command)
 
 
 class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -122,7 +113,6 @@ class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def __init__(self, server_address, RequestHandlerClass):
         socketserver.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
-output = StreamingOutput()
 
 def cameraThread():
     global output
@@ -141,13 +131,30 @@ def cameraThread():
             print("here")
 
 
+output = StreamingOutput()
+commands_queue = Queue()
+event = Event()
+
+
+def handler(signal_received, frame):
+    event.set()
+
 def main():
+    signal(SIGINT, handler)
     camera_thread = threading.Thread(target=cameraThread)
     camera_thread.daemon = True
     camera_thread.start()
     print('Server loop running in thread: ', camera_thread.name)
-    while 1:
-        pass
+    serial_comm = SerialComm(arduino_comm_q=commands_queue)
+    serial_comm.start()
+
+    while True:
+        if event.is_set():
+            print("Exiting all child processes..")
+            serial_comm.terminate()
+            commands_queue.close()
+            # Terminating main process
+            exit(0)
 
 if __name__ == '__main__':
     main()
