@@ -83,17 +83,17 @@ def getCommandEncoding(commandNo, execValue):
     elif commandNo == 7:  # No entry - speed = 0
         return b'\x02\x00'
     elif commandNo == 0:  # 30km/h - speed = 0
-        return b'\x02\x50'  # TODO
-    elif commandNo == 1:  # 30km/h - speed = 0
-        return b'\x02\x70'  # TODO
-    elif commandNo == 2:  # 50km/h - speed = 0
-        return b'\x02\x00'  # TODO
-    elif commandNo == 9:  # go straight ahead
-        return b'\x03\x6C'
+        return b'\x02\x50'
+    elif commandNo == 1:  # 50km/h - speed = 0
+        return b'\x02\x70'
+    elif commandNo == 2:  # 70km/h - speed = 0
+        return b'\x02\x80'
     elif commandNo == 8:  # turn right ahead
-        return b'\x03\x4E'  # TODO
+        return b'\x03\x4E'
     elif commandNo == 9:  # turn left ahead 
-        return b'\x03\x8A'  # TODO
+        return b'\x03\x8A'
+    elif commandNo == 10:  # go straight ahead
+        return b'\x03\x6C'
 
     # Starting with this value these are `admin-manual` commands
     elif commandNo == 20:  # Turn on PID algorithm
@@ -108,7 +108,7 @@ def getCommandEncoding(commandNo, execValue):
         elif execValue > 255:
             return b'\x02\xFF'
         else:
-            aux = 0x0200 & execValue
+            aux = 0x0200 | execValue
             return aux.to_bytes(2, 'big')
 
     elif commandNo == 23:  # Go backwards
@@ -117,7 +117,7 @@ def getCommandEncoding(commandNo, execValue):
         elif execValue > 255:
             return b'\x12\xFF'
         else:
-            aux = 0x1200 & execValue
+            aux = 0x1200 | execValue
             return aux.to_bytes(2, 'big')
 
     elif commandNo == 24:  # Turn
@@ -126,18 +126,18 @@ def getCommandEncoding(commandNo, execValue):
         elif execValue > 138:
             return b'\x03\x8A'
         else:
-            aux = 0x0300 | execValue  # TODO & OR  |
+            aux = 0x0300 | execValue
             return aux.to_bytes(2, 'big')
     else:
         return b'\x00\x00'
 
 
 class SocketProcess(Process):
-    def __init__(self, frames_queue, commands_queue):
+    def __init__(self, frames_queue, commands_queue, host='192.168.0.187', port=10050):
         super(SocketProcess, self).__init__()
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.host_ip = '192.168.0.187'
-        self.port = 10050
+        self.host_ip = host
+        self.port = port
         self.commands_queue = commands_queue
         self.frames_queue = frames_queue
         self.runSendThread = True
@@ -245,10 +245,10 @@ def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_
                     det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
 
                     # Print results
-                    for c in det[:, -1].unique():
-                        n = (det[:, -1] == c).sum()  # detections per class
+                    # for c in det[:, -1].unique():
+                    #     n = (det[:, -1] == c).sum()  # detections per class
 
-                        # Write results
+                    # Write results
                     for *xyxy, conf, cls in reversed(det):
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
@@ -270,8 +270,9 @@ def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_
                                 old_pred = classIndex
                                 if commands_queue.full():
                                     commands_queue.get_nowait()
-                                commands_queue.put(getCommandEncoding(classIndex, 0))
-
+                                aux = getCommandEncoding(classIndex, 0)
+                                if aux != b'\x00\x00':
+                                    commands_queue.put(getCommandEncoding(classIndex, 0))
 
                         #     print('Prediction:' + str(classIndex) + " " + str(getClassName(classIndex)) + ', p='
                         #           + str(round(probabilityValue * 100, 2)) + "%")
@@ -326,11 +327,11 @@ def main():
                                            commands_queue=commands_q)
     classifier_process = Process(target=detectAndClassifySign, args=(frames_q, commands_q))
 
-    #user_comm_process = Process(target=userCommandsReceiver, args=(commands_q, event))
+    # user_comm_process = Process(target=userCommandsReceiver, args=(commands_q, event))
 
     socketReceiver_process.start()
     classifier_process.start()
-    #user_comm_process.start()
+    # user_comm_process.start()
 
     print('Running. Press CTRL-C to exit.')
 
@@ -339,7 +340,7 @@ def main():
             print("Exiting all child processes..")
             classifier_process.terminate()
             socketReceiver_process.terminate()
-            #user_comm_process.terminate()
+            # user_comm_process.terminate()
             frames_q.close()
             commands_q.close()
             frames_q.join_thread()
