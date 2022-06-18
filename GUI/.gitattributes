@@ -1,0 +1,2 @@
+ui/resources/material_product_sounds filter=lfs diff=lfs merge=lfs -text
+ui/resources/__MACOSX filter=lfs diff=lfs merge=lfs -text
