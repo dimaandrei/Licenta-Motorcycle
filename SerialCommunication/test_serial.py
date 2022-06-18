@@ -2,8 +2,8 @@
 import serial
 import time
 
-ser = serial.Serial("/dev/serial0", 115200, timeout=1)
-
+#ser = serial.Serial("/dev/serial0", 115200, timeout=1)
+ser = serial.Serial("/dev/ttyACM0", 9600, timeout=1)
 # Clear DTR, wait one second, flush input, then set DTR.
 
 ser.setDTR(False)
@@ -16,8 +16,7 @@ if __name__ == '__main__':
     ser.reset_input_buffer()
     while True:
         #  if ser.in_waiting > 0:
-        ser.write(b"Hello from Raspberry Pi!\n")
-        line = ser.readline().decode('utf-8').rstrip()
-        print(line)
+        ser.write(b'\x01\x00')
+        
         time.sleep(1)
 
