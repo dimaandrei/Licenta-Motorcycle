@@ -32,7 +32,7 @@ class StreamingOutput():
 
 
 class SerialComm(Process):
-    def __init__(self, arduino_comm_q, serial_port='/dev/serial0', baud_rate=115200):
+    def __init__(self, arduino_comm_q, serial_port='/dev/serial0', baud_rate=9600):
         super(SerialComm, self).__init__()
         self.arduino_comm_q = arduino_comm_q
         self.serial_comm = serial.Serial(serial_port, baud_rate, timeout=1)
@@ -65,14 +65,13 @@ class SerialComm(Process):
 
 
 class SingleTCPHandler(socketserver.BaseRequestHandler):
-    payload_size = struct.calcsize("Q")
+    payload_size = struct.calcsize("B")
 
     def handle(self):
         srcaddr, srcport = self.request.getpeername()
         print("Connection from {}:{}".format(srcaddr, srcport))
         self.thread = threading.Thread(target=self.recieveData, args=[self.request])
         self.thread.start()
-        # handler(self.request, fakeport)
         while True:
             with output.condition:
                 output.condition.wait()
@@ -86,18 +85,18 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
         data = b''
 
         while self.recievingData:
-            print("Waiting for data")
+            print("Waiting for data: ", sep= '')
             while len(data) < self.payload_size:
-                packet = request.recv(256)
+                packet = request.recv(128)
                 if not packet: break
                 data+=packet
 
             packed_msg_size = data[:self.payload_size]
             data = data[self.payload_size:]
-            msg_size = struct.unpack("Q",packed_msg_size)[0]
+            msg_size = struct.unpack("B",packed_msg_size)[0]
 
             while len(data) < msg_size:
-                data += request.recv(256)
+                data += request.recv(128)
 
             command = data[:msg_size]
             data = data[msg_size:]
