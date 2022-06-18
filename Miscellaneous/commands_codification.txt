@@ -1,0 +1,21 @@
+
+-> We need two bytes for commands codification:
+    - first byte is the command type
+    - second byte represents the value(e.g. engine speed)
+
+-> Possible commands:
+    - turn on/off self stabilitization
+    - go forward
+    - go backwards
+    - turn left
+    - turn right
+
+
+-> Codification:
+    - turn on stabilization: o1=0x01, o2= 0x01
+    - turn off stabilization: o1=0x01, o2= 0x00
+
+    - go forward: o1=0x02, o2= 0xxx(0;255)
+    - go backwards: o1=0x12, o2= 0xxx(-255;-1)
+
+    - turning: o1=0x03, o2= 0xxx(78 - max right; 138 - max left)

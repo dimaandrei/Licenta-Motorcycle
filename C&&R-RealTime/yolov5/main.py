@@ -1,3 +1,4 @@
+from distutils.log import error
 import os
 import pickle
 import socket
@@ -76,12 +77,67 @@ def getClassName(classNo):
         return 'keep-left'
 
 
+def getCommandEncoding(commandNo, execValue):
+    if commandNo == 5:  # STOP sign - speed = 0
+        return b'\x02\x00'
+    elif commandNo == 7:  # No entry - speed = 0
+        return b'\x02\x00'
+    elif commandNo == 0:  # 30km/h - speed = 0
+        return b'\x02\x50'
+    elif commandNo == 1:  # 50km/h - speed = 0
+        return b'\x02\x70'
+    elif commandNo == 2:  # 70km/h - speed = 0
+        return b'\x02\x80'
+    elif commandNo == 8:  # turn right ahead
+        return b'\x03\x4E'
+    elif commandNo == 9:  # turn left ahead 
+        return b'\x03\x8A'
+    elif commandNo == 10:  # go straight ahead
+        return b'\x03\x6C'
+
+    # Starting with this value these are `admin-manual` commands
+    elif commandNo == 20:  # Turn on PID algorithm
+        return b'\x01\x01'
+
+    elif commandNo == 21:  # Turn off PID algorithm
+        return b'\x01\x00'
+
+    elif commandNo == 22:  # Go forward
+        if execValue < 0:
+            return b'\x02\x00'
+        elif execValue > 255:
+            return b'\x02\xFF'
+        else:
+            aux = 0x0200 | execValue
+            return aux.to_bytes(2, 'big')
+
+    elif commandNo == 23:  # Go backwards
+        if execValue < 0:
+            return b'\x12\x00'
+        elif execValue > 255:
+            return b'\x12\xFF'
+        else:
+            aux = 0x1200 | execValue
+            return aux.to_bytes(2, 'big')
+
+    elif commandNo == 24:  # Turn
+        if execValue < 78:
+            return b'\x03\x4E'
+        elif execValue > 138:
+            return b'\x03\x8A'
+        else:
+            aux = 0x0300 | execValue
+            return aux.to_bytes(2, 'big')
+    else:
+        return b'\x00\x00'
+
+
 class SocketProcess(Process):
-    def __init__(self, frames_queue, commands_queue):
+    def __init__(self, frames_queue, commands_queue, host='192.168.0.187', port=10050):
         super(SocketProcess, self).__init__()
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.host_ip = '192.168.0.187'
-        self.port = 10050
+        self.host_ip = host
+        self.port = port
         self.commands_queue = commands_queue
         self.frames_queue = frames_queue
         self.runSendThread = True
@@ -89,39 +145,44 @@ class SocketProcess(Process):
         self.send_thread.start()
 
     def run(self) -> None:
-        self.client_socket.connect((self.host_ip, self.port))
-        data = b''
-        # Q: unsigned long long integer(8 bytes)
-        payload_size = struct.calcsize("Q")
+        try:
+            self.client_socket.connect((self.host_ip, self.port))
+            data = b''
+            # Q: unsigned long long integer(8 bytes)
+            payload_size = struct.calcsize("Q")
 
-        while True:  # shared condition here!!
-            while len(data) < payload_size:
-                packet = self.client_socket.recv(4 * 1024)
-                if not packet:
-                    break
-                data += packet
-                # print(f'{len(data)}-{payload_size}')
+            while True:  # shared condition here!!
 
-            packed_msg_size = data[:payload_size]
-            data = data[payload_size:]
-            msg_size = struct.unpack("Q", packed_msg_size)[0]
+                while len(data) < payload_size:
+                    packet = self.client_socket.recv(4 * 1024)
+                    if not packet:
+                        break
+                    data += packet
+                    # print(f'{len(data)}-{payload_size}')
 
-            while len(data) < msg_size:
-                data += self.client_socket.recv(4 * 1024)
-            frame_data = data[:msg_size]
-            data = data[msg_size:]
-            if self.frames_queue.full():
-                # we don't care about older frames if the queue is full
-                self.frames_queue.get_nowait()
-            self.frames_queue.put(frame_data)
+                packed_msg_size = data[:payload_size]
+                data = data[payload_size:]
+                msg_size = struct.unpack("Q", packed_msg_size)[0]
+
+                while len(data) < msg_size:
+                    data += self.client_socket.recv(4 * 1024)
+                frame_data = data[:msg_size]
+                data = data[msg_size:]
+                if self.frames_queue.full():
+                    # we don't care about older frames if the queue is full
+                    self.frames_queue.get_nowait()
+                self.frames_queue.put(frame_data)
+        except socket.error as e:
+            print(f'Socket exception: {e}')
 
     def threadToWaitForPredictionAndSend(self):
         while self.runSendThread:
             if self.commands_queue.empty():
                 pass
             else:
-                command = self.commands_queue.get().encode()
-                message = struct.pack("Q", len(command)) + command
+                command = self.commands_queue.get()
+                print(command)
+                message = struct.pack("B", len(command)) + command
                 self.client_socket.sendall(message)
 
     def terminate(self) -> None:
@@ -146,8 +207,9 @@ def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_
     cudnn.benchmark = True  # set True to speed up constant image size inference
 
     model.warmup(imgsz=(1 if pt else 1, 3, *img_sz))  # warmup
-
+    old_pred = None
     while True:  # Condition here!
+
         if not frames_queue.empty():
             frame_data = frames_queue.get()
             frame = pickle.loads(frame_data)
@@ -183,10 +245,10 @@ def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_
                     det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
 
                     # Print results
-                    for c in det[:, -1].unique():
-                        n = (det[:, -1] == c).sum()  # detections per class
+                    # for c in det[:, -1].unique():
+                    #     n = (det[:, -1] == c).sum()  # detections per class
 
-                        # Write results
+                    # Write results
                     for *xyxy, conf, cls in reversed(det):
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
@@ -204,13 +266,18 @@ def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_
                         classIndex = vgg_model.predict_classes(sign_img)
                         probabilityValue = np.amax(predictions)
                         if probabilityValue > 0.75:
-                            if commands_queue.full():
-                                commands_queue.get_nowait()
-                            commands_queue.put(str(getClassName(classIndex)))
+                            if old_pred is None or old_pred != classIndex:  # add in queue different detections
+                                old_pred = classIndex
+                                if commands_queue.full():
+                                    commands_queue.get_nowait()
+                                aux = getCommandEncoding(classIndex, 0)
+                                if aux != b'\x00\x00':
+                                    commands_queue.put(getCommandEncoding(classIndex, 0))
 
                         #     print('Prediction:' + str(classIndex) + " " + str(getClassName(classIndex)) + ', p='
                         #           + str(round(probabilityValue * 100, 2)) + "%")
-
+                else:
+                    old_pred = None
                 # Stream results
                 # im0 = annotator.result()
                 # cv2.imshow("Predictions", im0)
@@ -224,6 +291,31 @@ def handler(signal_received, frame):
     event.set()
 
 
+def userCommandsReceiver(commands_queue, event):
+    commandEncoding = None
+
+    while True:
+        userCommand = input('Command: ')
+        if userCommand.strip() == 'STOP-PID':
+            commandEncoding = getCommandEncoding(21, 0)
+
+        elif userCommand.strip() == 'START-PID':
+            commandEncoding = getCommandEncoding(21, 0)
+
+        elif userCommand.strip() == 'W-1':
+            commandEncoding = getCommandEncoding(22, 80)
+        elif userCommand.strip() == 'W-0':
+            commandEncoding = getCommandEncoding(22, 80)
+        else:
+            continue
+
+        if commandEncoding is not None:
+            if commands_queue.full():
+                commands_queue.get_nowait()
+            commands_queue.put(commandEncoding)
+            commandEncoding = None
+
+
 def main():
     # detectAndClassifySign()
     signal(SIGINT, handler)
@@ -235,8 +327,11 @@ def main():
                                            commands_queue=commands_q)
     classifier_process = Process(target=detectAndClassifySign, args=(frames_q, commands_q))
 
+    # user_comm_process = Process(target=userCommandsReceiver, args=(commands_q, event))
+
     socketReceiver_process.start()
     classifier_process.start()
+    # user_comm_process.start()
 
     print('Running. Press CTRL-C to exit.')
 
@@ -245,6 +340,7 @@ def main():
             print("Exiting all child processes..")
             classifier_process.terminate()
             socketReceiver_process.terminate()
+            # user_comm_process.terminate()
             frames_q.close()
             commands_q.close()
             frames_q.join_thread()
