@@ -14,10 +14,11 @@ import numpy as np
 import tensorflow as tf
 import torch
 import torch.backends.cudnn as cudnn
+import cv2
 
 from models.common import DetectMultiBackend
 from utils.augmentations import letterbox
-from utils.general import (check_img_size, cv2,
+from utils.general import (check_img_size,
                            non_max_suppression, scale_coords)
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device

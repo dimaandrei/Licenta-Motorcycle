@@ -2,7 +2,7 @@ from __future__ import print_function
 
 import json
 import sys
-
+import cv2
 from PyQt5 import QtCore
 from PyQt5 import uic
 from PyQt5.QtWebEngineWidgets import (QWebEngineView)
@@ -18,7 +18,7 @@ class Window(QMainWindow):
         self.darkTheme2 = self.loadColorJSON("./ui/themes/darkTheme")
         self.lightTheme = self.loadColorJSON("./ui/themes/lightTheme")
         self.connectSignalsSlots()
-        self.setTheme("darkTheme")
+        self.setTheme("lightTheme")
 
         # WebEngine
         self.webView = QWebEngineView(self.verticalWidget)
@@ -37,6 +37,41 @@ class Window(QMainWindow):
         self.actionDark_Theme.triggered.connect(self.changeToDarkThemeCallback)
         self.actionLight_Theme.triggered.connect(self.changeToLightThemeCallback)
         self.startVideoFeedButton.clicked.connect(self.videoCallback)
+        self.backToMainFM.clicked.connect(self.backToMainMenuCallback)
+        # Pressed && Released
+
+        self.goForward.pressed.connect(self.goForward_pressed)
+        self.goForward.released.connect(self.goForward_released)
+        self.goBackwards.pressed.connect(self.goBackwards_pressed)
+        self.goBackwards.released.connect(self.goBackwards_released)
+        self.goToTheLeft.pressed.connect(self.goToTheLeft_pressed)
+        self.goToTheLeft.released.connect(self.goToTheLeft_released)
+        self.goToTheRight.pressed.connect(self.goToTheRight_pressed)
+        self.goToTheRight.released.connect(self.goToTheRight_released)
+
+    def goForward_pressed(self):
+        print('Hello')
+
+    def goForward_released(self):
+        print('DIma')
+
+    def goBackwards_pressed(self):
+        print('Hello')
+
+    def goBackwards_released(self):
+        print('DIma')
+
+    def goToTheRight_pressed(self):
+        print('Hello')
+
+    def goToTheRight_released(self):
+        print('DIma')
+
+    def goToTheLeft_pressed(self):
+        print('Hello')
+
+    def goToTheLeft_released(self):
+        print('DIma')
 
     def about(self):
         QMessageBox.about(
