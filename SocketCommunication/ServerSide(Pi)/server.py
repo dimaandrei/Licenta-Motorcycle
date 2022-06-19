@@ -11,7 +11,7 @@ from threading import Condition
 from multiprocessing import Process, Queue, Event
 from signal import signal, SIGINT
 from sys import exit
-
+import socket
 
 class StreamingOutput():
     def __init__(self):
@@ -68,41 +68,49 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
     payload_size = struct.calcsize("B")
 
     def handle(self):
-        srcaddr, srcport = self.request.getpeername()
-        print("Connection from {}:{}".format(srcaddr, srcport))
-        self.thread = threading.Thread(target=self.recieveData, args=[self.request])
-        self.thread.start()
-        while True:
-            with output.condition:
-                output.condition.wait()
-                frame = output.frame
-                a = pickle.dumps(frame)
-                message = struct.pack("Q",len(a))+a
-                self.request.sendall(message)
+        try:
+            srcaddr, srcport = self.request.getpeername()
+            print("Connection from {}:{}".format(srcaddr, srcport))
+            self.thread = threading.Thread(target=self.recieveData, args=[self.request])
+            self.thread.start()
+            while True:
+                with output.condition:
+                    output.condition.wait()
+                    frame = output.frame
+                    a = pickle.dumps(frame)
+                    message = struct.pack("Q",len(a))+a
+                    self.request.sendall(message)
+        except socket.error as e:
+            print(f'Socket exception! Probably client socket was closed!')
+            # print(f'Errpr: {e}')
 
     def recieveData(self, request):
         self.recievingData = True
         data = b''
+        try:
+            while self.recievingData:
+                print("Waiting for data: ", sep= '')
+                while len(data) < self.payload_size:
+                    packet = request.recv(128)
+                    if not packet: break
+                    data+=packet
 
-        while self.recievingData:
-            print("Waiting for data: ", sep= '')
-            while len(data) < self.payload_size:
-                packet = request.recv(128)
-                if not packet: break
-                data+=packet
+                packed_msg_size = data[:self.payload_size]
+                data = data[self.payload_size:]
+                msg_size = struct.unpack("B",packed_msg_size)[0]
 
-            packed_msg_size = data[:self.payload_size]
-            data = data[self.payload_size:]
-            msg_size = struct.unpack("B",packed_msg_size)[0]
+                while len(data) < msg_size:
+                    data += request.recv(128)
 
-            while len(data) < msg_size:
-                data += request.recv(128)
-
-            command = data[:msg_size]
-            data = data[msg_size:]
-            if commands_queue.full():
-                commands_queue.get_nowait()
-            commands_queue.put(command)
+                command = data[:msg_size]
+                data = data[msg_size:]
+                print(command)
+                if commands_queue.full():
+                    commands_queue.get_nowait()
+                commands_queue.put(command)
+        except socket.error as e:
+            print(f'Socket exception! Probably client socket was closed!')
+            # print(f'Errpr: {e}')
 
 
 class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
