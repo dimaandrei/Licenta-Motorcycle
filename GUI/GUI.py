@@ -2,7 +2,7 @@ from __future__ import print_function
 
 import json
 import sys
-
+import cv2
 from PyQt5 import QtCore
 from PyQt5 import uic
 from PyQt5.QtWebEngineWidgets import (QWebEngineView)
@@ -65,6 +65,12 @@ class Window(QMainWindow):
         print('Hello')
 
     def goToTheRight_released(self):
+        print('DIma')
+
+    def goToTheLeft_pressed(self):
+        print('Hello')
+
+    def goToTheLeft_released(self):
         print('DIma')
 
     def about(self):
