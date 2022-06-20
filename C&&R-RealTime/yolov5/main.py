@@ -129,6 +129,12 @@ def getCommandEncoding(commandNo, execValue):
         else:
             aux = 0x0300 | execValue
             return aux.to_bytes(2, 'big')
+
+    elif commandNo == 25:  # Turn on front objects detection
+        print("plm")
+        return b'\x04\x01'
+    elif commandNo == 26:  # Turn off front objects detection
+        return b'\x04\x00'
     else:
         return b'\x00\x00'
 
@@ -175,6 +181,8 @@ class SocketProcess(Process):
                 self.frames_queue.put(frame_data)
         except socket.error as e:
             print(f'Socket exception: {e}')
+        except struct.error as e:
+            print(f'Struct exception: {e}')
 
     def threadToWaitForPredictionAndSend(self):
         while self.runSendThread:
@@ -318,6 +326,7 @@ def userCommandsReceiver(commands_queue, event):
 
 
 def main():
+    print("Test started!")
     # detectAndClassifySign()
     signal(SIGINT, handler)
 

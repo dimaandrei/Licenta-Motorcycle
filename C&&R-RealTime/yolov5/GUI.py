@@ -59,6 +59,9 @@ class Window(QMainWindow):
         self.goToTheRight.pressed.connect(self.goToTheRight_pressed)
         self.goToTheRight.released.connect(self.goToTheRight_released)
 
+        self.activatePID_c.toggled.connect(self.pidStatusChanged)
+        self.avoidCollision_c.toggled.connect(self.obstaclesDetectorStatusChanged)
+
     def goForward_pressed(self):
         aux = getCommandEncoding(22, 80)
         self.addUserCommand(aux)
@@ -108,6 +111,22 @@ class Window(QMainWindow):
             self.commands_q.get_nowait()
         if command != b'\x00\x00':
             self.commands_q.put(command)
+
+    def pidStatusChanged(self):
+        aux = None
+        if self.activatePID_c.isChecked():
+            aux = getCommandEncoding(20, 0)
+        else:
+            aux = getCommandEncoding(21, 0)
+        self.addUserCommand(aux)
+
+    def obstaclesDetectorStatusChanged(self):
+        aux = None
+        if self.avoidCollision_c.isChecked():
+            aux = getCommandEncoding(25, 0)
+        else:
+            aux = getCommandEncoding(26, 0)
+        self.addUserCommand(aux)
 
     def about(self):
         QMessageBox.about(
