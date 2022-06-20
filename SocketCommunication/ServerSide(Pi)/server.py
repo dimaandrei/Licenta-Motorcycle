@@ -13,6 +13,18 @@ from signal import signal, SIGINT
 from sys import exit
 import socket
 
+import RPi.GPIO as GPIO
+import time
+ 
+# GPIO Mode (BOARD / BCM)
+GPIO.setmode(GPIO.BCM)
+ 
+GPIO_TRIGGER = 18
+GPIO_ECHO = 24
+ 
+GPIO.setup(GPIO_TRIGGER, GPIO.OUT)
+GPIO.setup(GPIO_ECHO, GPIO.IN)
+
 class StreamingOutput():
     def __init__(self):
         self.frame = None
@@ -60,13 +72,60 @@ class SerialComm(Process):
                 print("Something went wrong! Invalid command!")
 
     def terminate(self) -> None:
+        print("\tExiting serial comm..")
         self.run_flag=False
         super(SerialComm, self).terminate()
+
+class FrontObstacleDetector(Process):
+    def __init__(self, arduino_comm_q):
+        super(FrontObstacleDetector, self).__init__()
+        self.arduino_comm_q = arduino_comm_q
+
+        self.run_flag=True
+
+    def run(self) -> None:
+        print("Front obstacles detector activated!")
+        startTime = time.time()
+        stopTime = time.time()
+        while self.run_flag:
+            # set Trigger to HIGH
+            GPIO.output(GPIO_TRIGGER, True)
+
+            # set Trigger after 0.01ms to LOW
+            time.sleep(0.00001)
+            GPIO.output(GPIO_TRIGGER, False)
+
+             # save StartTime
+            while GPIO.input(GPIO_ECHO) == 0:
+                startTime = time.time()
+
+            # save time of arrival
+            while GPIO.input(GPIO_ECHO) == 1:
+                stopTime = time.time()
+
+            # time difference between start and arrival
+            timeElapsed = stopTime - startTime
+            # multiply with the sonic speed (34300 cm/s)
+            # and divide by 2, because there and back
+            distance = (timeElapsed * 34300) / 2
+            print(distance)
+            if distance < 25:
+                print("Obstacle collision danger!")
+                if commands_queue.full():
+                    commands_queue.get_nowait()
+                commands_queue.put(b'\x02\x00')
+            time.sleep(1)
+
+    def terminate(self) -> None:
+        self.run_flag=False
+        print("\tExiting front obstacles detector..")
+        super(FrontObstacleDetector, self).terminate()
+
 
 
 class SingleTCPHandler(socketserver.BaseRequestHandler):
     payload_size = struct.calcsize("B")
-
+    recievingData = True
     def handle(self):
         try:
             srcaddr, srcport = self.request.getpeername()
@@ -83,9 +142,8 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
         except socket.error as e:
             print(f'Socket exception! Probably client socket was closed!')
             # print(f'Errpr: {e}')
-
+ 
     def recieveData(self, request):
-        self.recievingData = True
         data = b''
         try:
             while self.recievingData:
@@ -104,7 +162,12 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
 
                 command = data[:msg_size]
                 data = data[msg_size:]
-                print(command)
+
+                if command ==  b'\x04\x01':
+                    detectFrontObstaclesEvent.set()
+                elif command ==  b'\x04\x00':
+                    detectFrontObstaclesEvent.clear()
+
                 if commands_queue.full():
                     commands_queue.get_nowait()
                 commands_queue.put(command)
@@ -112,6 +175,9 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
             print(f'Socket exception! Probably client socket was closed!')
             # print(f'Errpr: {e}')
 
+    def finish(self) -> None:
+        self.recievingData = False
+        return super().finish()
 
 class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
@@ -140,11 +206,11 @@ def cameraThread():
 
 output = StreamingOutput()
 commands_queue = Queue()
-event = Event()
-
+closeEvent = Event()
+detectFrontObstaclesEvent = Event() # to activate
 
 def handler(signal_received, frame):
-    event.set()
+    closeEvent.set()
 
 def main():
     signal(SIGINT, handler)
@@ -155,13 +221,31 @@ def main():
     serial_comm = SerialComm(arduino_comm_q=commands_queue)
     serial_comm.start()
 
-    while True:
-        if event.is_set():
-            print("Exiting all child processes..")
-            serial_comm.terminate()
-            commands_queue.close()
-            # Terminating main process
-            exit(0)
+    frontObstacleDetector_process = None
+
+    try:
+        while True:
+            if detectFrontObstaclesEvent.is_set() and frontObstacleDetector_process is None:
+                frontObstacleDetector_process = FrontObstacleDetector(arduino_comm_q=commands_queue)
+                frontObstacleDetector_process.start()
+                print("here")
+            elif frontObstacleDetector_process is not None and not detectFrontObstaclesEvent.is_set():
+                frontObstacleDetector_process.terminate()
+                frontObstacleDetector_process = None
+                print("dima")
+
+            if closeEvent.is_set():
+                break
+    finally:
+        print("Exiting all child processes..")
+        serial_comm.terminate()
+        if frontObstacleDetector_process is not None and frontObstacleDetector_process.is_alive():
+            frontObstacleDetector_process.terminate()
+        commands_queue.close()
+        GPIO.cleanup()
+        # Terminating main process
+
+    exit(0)
 
 if __name__ == '__main__':
     main()
