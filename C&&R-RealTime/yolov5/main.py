@@ -1,4 +1,3 @@
-from distutils.log import error
 import os
 import pickle
 import socket
@@ -10,11 +9,11 @@ from pathlib import Path
 from signal import signal, SIGINT
 from sys import exit
 
+import cv2
 import numpy as np
 import tensorflow as tf
 import torch
 import torch.backends.cudnn as cudnn
-import cv2
 
 from models.common import DetectMultiBackend
 from utils.augmentations import letterbox
@@ -47,35 +46,35 @@ def preprocessing(in_img):
 
 def getClassName(classNo):
     if classNo == 0:
-        return 'max-30km/h'
+        return 'Speed Limit 30 km/h'
     elif classNo == 1:
-        return 'max-50km/h'
+        return 'Speed Limit 50 km/h'
     elif classNo == 2:
-        return 'max-70km/h'
+        return 'Speed Limit 70 km/h'
     elif classNo == 3:
-        return 'priority-road'
+        return 'Priority road'
     elif classNo == 4:
-        return 'yield'
+        return 'Yield'
     elif classNo == 5:
-        return 'stop'
+        return 'Stop'
     elif classNo == 6:
-        return 'no-vehicles'
+        return 'No vehicles'
     elif classNo == 7:
-        return 'no-entry'
+        return 'No entry'
     elif classNo == 8:
-        return 'turn-right-ahead'
+        return 'Turn right ahead'
     elif classNo == 9:
-        return 'turn-left-ahead'
+        return 'Turn left ahead'
     elif classNo == 10:
-        return 'ahead-only'
+        return 'Ahead only'
     elif classNo == 11:
-        return 'go-straight-or-right'
+        return 'Go straight or right'
     elif classNo == 12:
-        return 'go-straight-or-left'
+        return 'Go straight or left'
     elif classNo == 13:
-        return 'keep-right'
+        return 'Keep right'
     elif classNo == 14:
-        return 'keep-left'
+        return 'Keep left'
 
 
 def getCommandEncoding(commandNo, execValue):
@@ -131,7 +130,6 @@ def getCommandEncoding(commandNo, execValue):
             return aux.to_bytes(2, 'big')
 
     elif commandNo == 25:  # Turn on front objects detection
-        print("plm")
         return b'\x04\x01'
     elif commandNo == 26:  # Turn off front objects detection
         return b'\x04\x00'
@@ -139,21 +137,24 @@ def getCommandEncoding(commandNo, execValue):
         return b'\x00\x00'
 
 
+# address = ('192.168.32.161', 10050)
+
 class SocketProcess(Process):
-    def __init__(self, frames_queue, commands_queue, host='192.168.0.187', port=10050):
+    def __init__(self, frames_queue, commands_queue, detector_started_event, host='192.168.0.187', port=10050):
         super(SocketProcess, self).__init__()
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.host_ip = host
         self.port = port
         self.commands_queue = commands_queue
         self.frames_queue = frames_queue
+        self.detector_started_event = detector_started_event
         self.runSendThread = True
         self.send_thread = threading.Thread(target=self.threadToWaitForPredictionAndSend)
-        self.send_thread.start()
 
     def run(self) -> None:
         try:
             self.client_socket.connect((self.host_ip, self.port))
+            self.send_thread.start()
             data = b''
             # Q: unsigned long long integer(8 bytes)
             payload_size = struct.calcsize("Q")
@@ -175,6 +176,10 @@ class SocketProcess(Process):
                     data += self.client_socket.recv(4 * 1024)
                 frame_data = data[:msg_size]
                 data = data[msg_size:]
+                if not self.detector_started_event.is_set():
+                    # we drop the frame if signs detector is not activated
+                    continue
+                # print("Processing frame..")
                 if self.frames_queue.full():
                     # we don't care about older frames if the queue is full
                     self.frames_queue.get_nowait()
@@ -183,25 +188,35 @@ class SocketProcess(Process):
             print(f'Socket exception: {e}')
         except struct.error as e:
             print(f'Struct exception: {e}')
+        finally:
+            self.runSendThread = False
+            if self.send_thread.is_alive():
+                self.send_thread.join()
 
     def threadToWaitForPredictionAndSend(self):
-        while self.runSendThread:
-            if self.commands_queue.empty():
-                pass
-            else:
-                command = self.commands_queue.get()
-                print(command)
-                message = struct.pack("B", len(command)) + command
-                self.client_socket.sendall(message)
+        try:
+            while self.runSendThread:
+                if self.commands_queue.empty():
+                    pass
+                else:
+                    command = self.commands_queue.get()
+                    print(command)
+                    message = struct.pack("B", len(command)) + command
+                    self.client_socket.sendall(message)
+        except socket.error as e:
+            print(f'Socket exception: {e}')
 
     def terminate(self) -> None:
         self.runSendThread = False
-        self.send_thread.join()
+        if self.send_thread.is_alive():
+            self.send_thread.join()
         super(SocketProcess, self).terminate()
 
 
 @torch.no_grad()
-def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_labels=False, hide_conf=False):
+def detectAndClassifySign(frames_queue, commands_bin_queue, processed_frame_queue, commands_str_queue,
+                          detector_started_event, show_processed_frames,
+                          img_sz=(320, 256)):
     print("Inference started!")
     # Load the VGG model
     vgg_model = tf.keras.models.load_model(ROOT / 'weights/model_vgg_training_v2.h5')
@@ -218,8 +233,8 @@ def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_
     model.warmup(imgsz=(1 if pt else 1, 3, *img_sz))  # warmup
     old_pred = None
     while True:  # Condition here!
-
-        if not frames_queue.empty():
+        if detector_started_event.is_set() and not frames_queue.empty():
+            # print("Detecting signs from frame..")
             frame_data = frames_queue.get()
             frame = pickle.loads(frame_data)
             np_arr = np.frombuffer(frame, np.uint8)
@@ -253,44 +268,43 @@ def detectAndClassifySign(frames_queue, commands_queue, img_sz=(320, 256), hide_
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
 
-                    # Print results
-                    # for c in det[:, -1].unique():
-                    #     n = (det[:, -1] == c).sum()  # detections per class
-
                     # Write results
                     for *xyxy, conf, cls in reversed(det):
                         c = int(cls)  # integer class
-                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        label = f'{names[c]} {conf:.2f}'
                         annotator.box_label(xyxy, label, color=colors(c, True))
-                        # if save_crop:
+
                         aux = save_one_box(xyxy, imc, BGR=True, save=False)
-                        # print(aux.shape)
+
                         sign_img = cv2.resize(aux, (32, 32))
                         sign_img = preprocessing(sign_img)
-                        # cv2.imshow("Processed Image", sign_img)
 
                         sign_img = sign_img.reshape(1, 32, 32, 1)
                         # PREDICT IMAGE
                         predictions = vgg_model.predict(sign_img)
                         classIndex = vgg_model.predict_classes(sign_img)
                         probabilityValue = np.amax(predictions)
-                        if probabilityValue > 0.75:
+                        if probabilityValue > 0.85:
                             if old_pred is None or old_pred != classIndex:  # add in queue different detections
                                 old_pred = classIndex
-                                if commands_queue.full():
-                                    commands_queue.get_nowait()
                                 aux = getCommandEncoding(classIndex, 0)
                                 if aux != b'\x00\x00':
-                                    commands_queue.put(getCommandEncoding(classIndex, 0))
+                                    if commands_bin_queue.full():
+                                        commands_bin_queue.get_nowait()
+                                    commands_bin_queue.put(getCommandEncoding(classIndex, 0))
+                                if commands_str_queue.full():
+                                    commands_str_queue.get_nowait()
+                                commands_str_queue.put(getClassName(classIndex))
 
-                        #     print('Prediction:' + str(classIndex) + " " + str(getClassName(classIndex)) + ', p='
-                        #           + str(round(probabilityValue * 100, 2)) + "%")
                 else:
                     old_pred = None
-                # Stream results
-                # im0 = annotator.result()
-                # cv2.imshow("Predictions", im0)
-                # cv2.waitKey(1)  # 1 millisecond
+
+                if show_processed_frames.is_set():
+                    # Stream results
+                    im0 = annotator.result()
+                    if processed_frame_queue.full():
+                        processed_frame_queue.get_nowait()
+                    processed_frame_queue.put(im0)
 
 
 event = Event()
@@ -300,48 +314,26 @@ def handler(signal_received, frame):
     event.set()
 
 
-def userCommandsReceiver(commands_queue, event):
-    commandEncoding = None
-
-    while True:
-        userCommand = input('Command: ')
-        if userCommand.strip() == 'STOP-PID':
-            commandEncoding = getCommandEncoding(21, 0)
-
-        elif userCommand.strip() == 'START-PID':
-            commandEncoding = getCommandEncoding(21, 0)
-
-        elif userCommand.strip() == 'W-1':
-            commandEncoding = getCommandEncoding(22, 80)
-        elif userCommand.strip() == 'W-0':
-            commandEncoding = getCommandEncoding(22, 80)
-        else:
-            continue
-
-        if commandEncoding is not None:
-            if commands_queue.full():
-                commands_queue.get_nowait()
-            commands_queue.put(commandEncoding)
-            commandEncoding = None
-
-
 def main():
     print("Test started!")
     # detectAndClassifySign()
     signal(SIGINT, handler)
 
-    frames_q = Queue()
+    frames_q = Queue(50)
     commands_q = Queue()
-
+    processed_frame_q = Queue()
+    commands_str_q = Queue()
+    detector_started_event = Event()
+    show_processed_frames = Event()
+    detector_event = Event()
     socketReceiver_process = SocketProcess(frames_queue=frames_q,
-                                           commands_queue=commands_q)
-    classifier_process = Process(target=detectAndClassifySign, args=(frames_q, commands_q))
-
-    # user_comm_process = Process(target=userCommandsReceiver, args=(commands_q, event))
+                                           commands_queue=commands_q, detector_started_event=detector_event)
+    classifier_process = Process(target=detectAndClassifySign, args=(frames_q, commands_q, processed_frame_q,
+                                                                     commands_str_q, detector_started_event,
+                                                                     show_processed_frames))
 
     socketReceiver_process.start()
     classifier_process.start()
-    # user_comm_process.start()
 
     print('Running. Press CTRL-C to exit.')
 
@@ -350,7 +342,7 @@ def main():
             print("Exiting all child processes..")
             classifier_process.terminate()
             socketReceiver_process.terminate()
-            # user_comm_process.terminate()
+
             frames_q.close()
             commands_q.close()
             frames_q.join_thread()

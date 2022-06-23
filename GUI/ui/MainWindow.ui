@@ -6,14 +6,14 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>480</width>
-    <height>540</height>
+    <width>724</width>
+    <height>760</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>480</width>
-    <height>540</height>
+    <width>724</width>
+    <height>760</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -243,17 +243,23 @@
             <widget class="QWidget" name="widget_9" native="true">
              <layout class="QHBoxLayout" name="horizontalLayout_10">
               <item>
-               <spacer name="horizontalSpacer_19">
-                <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
+               <widget class="QLabel" name="frameViewerLabel">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
                 </property>
-                <property name="sizeHint" stdset="0">
+                <property name="minimumSize">
                  <size>
-                  <width>40</width>
-                  <height>20</height>
+                  <width>320</width>
+                  <height>256</height>
                  </size>
                 </property>
-               </spacer>
+                <property name="text">
+                 <string>                    Image preview not selected</string>
+                </property>
+               </widget>
               </item>
               <item>
                <widget class="Line" name="line_2">
@@ -279,61 +285,93 @@
                    </property>
                   </widget>
                  </item>
-                 <item row="2" column="1">
+                 <item row="3" column="1">
                   <widget class="QCheckBox" name="avoidCollision_c">
                    <property name="text">
                     <string>Avoid front collision</string>
                    </property>
                   </widget>
                  </item>
-                 <item row="3" column="1">
+                 <item row="5" column="1">
                   <widget class="Line" name="line_5">
                    <property name="orientation">
                     <enum>Qt::Horizontal</enum>
                    </property>
                   </widget>
                  </item>
-                 <item row="4" column="0">
+                 <item row="6" column="0">
                   <widget class="QLabel" name="label_3">
                    <property name="text">
                     <string>Angle</string>
                    </property>
                   </widget>
                  </item>
-                 <item row="4" column="1">
+                 <item row="6" column="1">
                   <widget class="QSlider" name="angleSlider">
+                   <property name="minimum">
+                    <number>80</number>
+                   </property>
                    <property name="maximum">
-                    <number>60</number>
+                    <number>136</number>
                    </property>
                    <property name="singleStep">
-                    <number>2</number>
+                    <number>1</number>
+                   </property>
+                   <property name="pageStep">
+                    <number>0</number>
+                   </property>
+                   <property name="value">
+                    <number>108</number>
                    </property>
                    <property name="sliderPosition">
-                    <number>30</number>
+                    <number>108</number>
                    </property>
                    <property name="orientation">
                     <enum>Qt::Horizontal</enum>
                    </property>
                   </widget>
                  </item>
-                 <item row="5" column="0">
+                 <item row="7" column="0">
                   <widget class="QLabel" name="label_4">
                    <property name="text">
                     <string>Speed</string>
                    </property>
                   </widget>
                  </item>
-                 <item row="5" column="1">
+                 <item row="7" column="1">
                   <widget class="QSlider" name="speedSlider">
+                   <property name="maximum">
+                    <number>150</number>
+                   </property>
+                   <property name="value">
+                    <number>50</number>
+                   </property>
                    <property name="orientation">
                     <enum>Qt::Horizontal</enum>
                    </property>
                   </widget>
                  </item>
-                 <item row="6" column="1">
+                 <item row="8" column="1">
                   <widget class="Line" name="line_7">
                    <property name="orientation">
                     <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="QCheckBox" name="signsDetector_c">
+                   <property name="text">
+                    <string>Signs detector</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="4" column="1">
+                  <widget class="QCheckBox" name="showCamera_c">
+                   <property name="enabled">
+                    <bool>false</bool>
+                   </property>
+                   <property name="text">
+                    <string>Show camera frames</string>
                    </property>
                   </widget>
                  </item>
@@ -341,6 +379,80 @@
                </widget>
               </item>
              </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="line_6">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QWidget" name="widget_12" native="true">
+             <layout class="QHBoxLayout" name="horizontalLayout_13">
+              <item>
+               <spacer name="horizontalSpacer_19">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QLabel" name="label_2">
+                <property name="font">
+                 <font>
+                  <family>Ubuntu Condensed</family>
+                  <pointsize>14</pointsize>
+                  <weight>75</weight>
+                  <italic>true</italic>
+                  <bold>true</bold>
+                 </font>
+                </property>
+                <property name="text">
+                 <string>Detected sign:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="horizontalSpacer_22">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="signDetectedLine">
+             <property name="font">
+              <font>
+               <family>Ubuntu Condensed</family>
+               <pointsize>12</pointsize>
+              </font>
+             </property>
+             <property name="text">
+              <string>Nothing detected</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+             </property>
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
             </widget>
            </item>
            <item>
@@ -702,7 +814,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>480</width>
+     <width>724</width>
      <height>22</height>
     </rect>
    </property>
