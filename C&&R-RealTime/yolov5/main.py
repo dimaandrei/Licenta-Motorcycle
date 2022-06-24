@@ -223,7 +223,7 @@ class SocketProcess(Process):
 
 @torch.no_grad()
 def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
-                          detector_started_event, show_processed_frames, condition, arr,
+                          detector_started_event, show_processed_frames, condition, condition2, arr, extractedSign,
                           img_sz=(160, 128)):
     print("Inference started!")
     # Load the VGG model
@@ -272,7 +272,6 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
 
                 imc = im0.copy()  # for save_crop
                 annotator = Annotator(im0, line_width=1, example=str(names))
-
                 if len(det):
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
@@ -286,6 +285,14 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
                         aux = save_one_box(xyxy, imc, BGR=True, save=False)
 
                         sign_img = cv2.resize(aux, (32, 32))
+
+                        if show_processed_frames.is_set():
+                            with condition2:
+                                temp2 = np.frombuffer(buffer=extractedSign, dtype=np.ubyte, count=3072).reshape(
+                                    (32, 32, 3))
+                                np.copyto(temp2, sign_img)
+                                condition2.notify_all()
+
                         sign_img = preprocessing(sign_img)
 
                         sign_img = sign_img.reshape(1, 32, 32, 1)
@@ -312,8 +319,8 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
                     with condition:
                         # Stream results
                         im0 = annotator.result()
-                        X_np = np.frombuffer(buffer=arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
-                        np.copyto(X_np, im0)
+                        temp1 = np.frombuffer(buffer=arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
+                        np.copyto(temp1, im0)
                         condition.notify_all()
                         # try:
                         #     if processed_frame_queue.full():

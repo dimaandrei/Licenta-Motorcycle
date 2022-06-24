@@ -17,7 +17,6 @@ from main import *
 
 class ProcessedFramesViewer(QThread):
     changePixmap = pyqtSignal(QImage)
-    changeLabel = pyqtSignal(str)
 
     def __init__(self, arr, cond, parent=None):
         super(ProcessedFramesViewer, self).__init__(parent)
@@ -36,6 +35,44 @@ class ProcessedFramesViewer(QThread):
                     bytesPerLine = ch * w
                     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
                     p = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
+                    self.changePixmap.emit(p)
+                # if not self.frames_q.empty():
+                #     frame = self.frames_q.get()
+                #     rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                #     h, w, ch = rgbImage.shape
+                #     bytesPerLine = ch * w
+                #     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
+                #     p = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
+                #     self.changePixmap.emit(p)
+            except Exception as e:
+                print(e)
+
+    def terminate(self) -> None:
+        self.run_flag = False
+        self.exit(0)
+
+
+class ExtractedSignViewer(QThread):
+    changePixmap = pyqtSignal(QImage)
+
+    def __init__(self, signExtracted, cond, parent=None):
+        super(ExtractedSignViewer, self).__init__(parent)
+        self.signExtracted = signExtracted
+        self.cond = cond
+        self.run_flag = True
+
+    def run(self):
+        while self.run_flag:
+            try:
+                with self.cond:
+                    self.cond.wait()
+                    frame = np.frombuffer(self.signExtracted, dtype=np.ubyte, count=3072).reshape((32, 32, 3))
+                    rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = rgbImage.shape
+                    bytesPerLine = ch * w
+                    convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
+                    p = convertToQtFormat.scaled(100, 100, Qt.KeepAspectRatio)
+
                     self.changePixmap.emit(p)
                 # if not self.frames_q.empty():
                 #     frame = self.frames_q.get()
@@ -77,6 +114,7 @@ class SignsDetectedViewerUpdater(QThread):
 class Window(QMainWindow):
     def __init__(self, parent=None, ):
         super().__init__(parent)
+        self.extractedSignViewerThread = None
         self.framesThreadViewer = None
         self.signsDetectedThreadUpdater = None
         uic.loadUi('./ui/MainWindow.ui', self)  # Load the .ui file
@@ -96,10 +134,12 @@ class Window(QMainWindow):
 
         self.frames_q = Queue(25)
         self.commands_bin_q = Queue()
-        self.processed_frames_q = Queue(50)
+
         self.commands_str_q = Queue()
-        self.con = Condition()
-        self.arr = RawArray(ctypes.c_ubyte, 128 * 160 * 3)
+        self.availableProcessedFrameCondition = Condition()
+        self.availableExtractedSign = Condition()
+        self.yoloAnnotatedFrame = RawArray(ctypes.c_ubyte, 128 * 160 * 3)
+        self.yoloExtractedSign = RawArray(ctypes.c_ubyte, 32 * 32 * 3)
 
         self.signDetectorStartedEvent = Event()
         self.showProcessedFramesEvent = Event()
@@ -107,10 +147,13 @@ class Window(QMainWindow):
         self.socketReceiver_process = SocketProcess(frames_queue=self.frames_q, commands_queue=self.commands_bin_q,
                                                     detector_started_event=self.signDetectorStartedEvent)
         self.classifier_process = Process(target=detectAndClassifySign, args=(self.frames_q, self.commands_bin_q,
-                                                                              self.processed_frames_q,
                                                                               self.commands_str_q,
                                                                               self.signDetectorStartedEvent,
-                                                                              self.showProcessedFramesEvent, self.con, self.arr))
+                                                                              self.showProcessedFramesEvent,
+                                                                              self.availableProcessedFrameCondition,
+                                                                              self.availableExtractedSign,
+                                                                              self.yoloAnnotatedFrame,
+                                                                              self.yoloExtractedSign))
 
         self.socketReceiver_process.start()
         self.classifier_process.start()
@@ -122,7 +165,6 @@ class Window(QMainWindow):
         self.backToMainMenu.clicked.connect(self.backToMainMenuCallback)
         self.actionDark_Theme.triggered.connect(self.changeToDarkThemeCallback)
         self.actionLight_Theme.triggered.connect(self.changeToLightThemeCallback)
-        self.backToMainFM.clicked.connect(self.backToMainMenuCallback)
         # Pressed && Released
 
         self.goForward.pressed.connect(self.goForward_pressed)
@@ -223,14 +265,24 @@ class Window(QMainWindow):
     def showCameraStatusChanged(self):
         if self.showCamera_c.isChecked() and self.signsDetector_c.isChecked():
             self.showProcessedFramesEvent.set()
-            self.framesThreadViewer = ProcessedFramesViewer(self.arr, self.con, self)
+            self.framesThreadViewer = ProcessedFramesViewer(self.yoloAnnotatedFrame,
+                                                            self.availableProcessedFrameCondition, self)
             self.framesThreadViewer.changePixmap.connect(self.setFrame)
             self.framesThreadViewer.start()
+
+            self.extractedSignViewerThread = ExtractedSignViewer(self.yoloExtractedSign,
+                                                                 self.availableExtractedSign, self)
+            self.extractedSignViewerThread.changePixmap.connect(self.setExtractedSignFrame)
+            self.extractedSignViewerThread.start()
         else:
             self.showProcessedFramesEvent.clear()
             self.framesThreadViewer.changePixmap.disconnect(self.setFrame)
             self.framesThreadViewer.terminate()
             self.frameViewerLabel.setText("\tImage preview not selected")
+
+            self.extractedSignViewerThread.changePixmap.disconnect(self.setExtractedSignFrame)
+            self.extractedSignViewerThread.terminate()
+            self.signDetectedLabel.setText("      Sign")
 
     def sliderPressed(self):
         self.angleSliderValue = self.angleSlider.value()
@@ -241,12 +293,12 @@ class Window(QMainWindow):
 
     def angleSliderChanged(self):
         if self.angleSlider.value() < self.angleSliderValue:  # to the right
-            for i in reversed(range(self.angleSlider.value(), self.angleSliderValue-1, 1)):  # 106
+            for i in reversed(range(self.angleSlider.value(), self.angleSliderValue - 1, 1)):  # 106
                 aux = getCommandEncoding(24, i)
                 self.addUserCommand(aux)
                 sleep(0.1)
         elif self.angleSlider.value() > self.angleSliderValue:  # to the left
-            for i in range(self.angleSliderValue+1, self.angleSlider.value(), 1):  # 110
+            for i in range(self.angleSliderValue + 1, self.angleSlider.value(), 1):  # 110
                 aux = getCommandEncoding(24, i)
                 self.addUserCommand(aux)
                 sleep(0.1)
@@ -254,6 +306,10 @@ class Window(QMainWindow):
     @pyqtSlot(QImage)
     def setFrame(self, image):
         self.frameViewerLabel.setPixmap(QPixmap.fromImage(image))
+
+    @pyqtSlot(QImage)
+    def setExtractedSignFrame(self, image):
+        self.signDetectedLabel.setPixmap(QPixmap.fromImage(image))
 
     @pyqtSlot(str)
     def setLabel(self, string):
@@ -295,6 +351,7 @@ class Window(QMainWindow):
         self.backToMainMenu.setStyleSheet(f'background-color: {theme["buttons"]}')
         self.speakBotton.setStyleSheet(f'background-color: {theme["buttons"]}')
         self.frameViewerLabel.setStyleSheet(f'background-color: {theme["menuBar"]}')
+        self.signDetectedLabel.setStyleSheet(f'background-color: {theme["menuBar"]}')
 
     @staticmethod
     def loadColorJSON(filePath):
@@ -311,6 +368,9 @@ class Window(QMainWindow):
             self.framesThreadViewer.terminate()
         if self.signsDetectedThreadUpdater is not None and self.signsDetectedThreadUpdater.isRunning():
             self.signsDetectedThreadUpdater.terminate()
+        if self.extractedSignViewerThread is not None and self.extractedSignViewerThread.isRunning():
+            self.extractedSignViewerThread.terminate()
+
         self.frames_q.close()
         self.commands_bin_q.close()
         self.frames_q.join_thread()
