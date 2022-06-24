@@ -144,14 +144,13 @@ def getCommandEncoding(commandNo, execValue):
 # address = ('192.168.32.161', 10050)
 
 class SocketProcess(Process):
-    def __init__(self, arr, cond, commands_queue, detector_started_event, host='192.168.0.187', port=10050):
+    def __init__(self, frames_queue, commands_queue, detector_started_event, host='192.168.0.187', port=10050):
         super(SocketProcess, self).__init__()
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.host_ip = host
         self.port = port
         self.commands_queue = commands_queue
-        self.cond = cond
-        self.arr = arr
+        self.frames_queue = frames_queue
         self.detector_started_event = detector_started_event
         self.runSendThread = True
         self.send_thread = threading.Thread(target=self.threadToWaitForPredictionAndSend)
@@ -165,6 +164,7 @@ class SocketProcess(Process):
             payload_size = struct.calcsize("Q")
 
             while True:  # shared condition here!!
+
                 while len(data) < payload_size:
                     packet = self.client_socket.recv(4 * 1024)
                     if not packet:
@@ -184,26 +184,14 @@ class SocketProcess(Process):
                     # we drop the frame if signs detector is not activated
                     continue
                 # print("Processing frame..")
-
-                # Stream results
-
-                frame = pickle.loads(frame_data)
-                np_arr = np.frombuffer(frame, np.uint8)
-
-                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                with self.cond:
-                    X_np = np.frombuffer(buffer=self.arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
-                    np.copyto(X_np, frame)
-                    self.cond.notify_all()
-
-                # try:
-                #     if self.frames_queue.full():
-                #         # we don't care about older frames if the queue is full
-                #         self.frames_queue.get_nowait()
-                #     self.frames_queue.put(frame_data)
-                # except queue.Empty as e:
-                #     pass
-                #     # print("Queue is empty!")
+                try:
+                    if self.frames_queue.full():
+                        # we don't care about older frames if the queue is full
+                        self.frames_queue.get_nowait()
+                    self.frames_queue.put(frame_data)
+                except queue.Empty as e:
+                    pass
+                    # print("Queue is empty!")
         except socket.error as e:
             print(f'Socket exception: {e}')
         except struct.error as e:
@@ -234,7 +222,7 @@ class SocketProcess(Process):
 
 
 @torch.no_grad()
-def detectAndClassifySign(frames_arr, commands_bin_queue, frames_cond, commands_str_queue,
+def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
                           detector_started_event, show_processed_frames, condition, arr,
                           img_sz=(160, 128)):
     print("Inference started!")
@@ -254,84 +242,86 @@ def detectAndClassifySign(frames_arr, commands_bin_queue, frames_cond, commands_
     old_pred = None
     while True:  # Condition here!
         startTime = time.time()
+        if detector_started_event.is_set() and not frames_queue.empty():
+            # print("Detecting signs from frame..")
+            frame_data = frames_queue.get()
+            frame = pickle.loads(frame_data)
+            np_arr = np.frombuffer(frame, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            im0 = frame.copy()
 
-        if detector_started_event.is_set(): #and not frames_queue.empty():
-            with frames_cond:
-                frames_cond.wait()
-                frame = np.frombuffer(frames_arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
-                im0 = frame.copy()
-                frame = letterbox(frame, img_sz, stride=stride, auto=pt)[0]
-                frame = frame.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-                frame = np.ascontiguousarray(frame)
+            frame = letterbox(frame, img_sz, stride=stride, auto=pt)[0]
+            frame = frame.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+            frame = np.ascontiguousarray(frame)
 
-                seen = 0
-                im = torch.from_numpy(frame).to(device)
-                im = im.float()  # uint8 to fp16/32
-                im /= 255  # 0 - 255 to 0.0 - 1.0
-                if len(im.shape) == 3:
-                    im = im[None]  # expand for batch dim
-                pred = model(im, augment=False,
-                             visualize=False)  # We don't want to augment inference or visualize features at this moment
+            seen = 0
+            im = torch.from_numpy(frame).to(device)
+            im = im.float()  # uint8 to fp16/32
+            im /= 255  # 0 - 255 to 0.0 - 1.0
+            if len(im.shape) == 3:
+                im = im[None]  # expand for batch dim
+            pred = model(im, augment=False,
+                         visualize=False)  # We don't want to augment inference or visualize features at this moment
 
-                # NMS
-                pred = non_max_suppression(pred, conf_thres=0.25, iou_thres=0.45, max_det=10)
+            # NMS
+            pred = non_max_suppression(pred, conf_thres=0.25, iou_thres=0.45, max_det=10)
 
-                # Process predictions
-                for i, det in enumerate(pred):  # per image
-                    seen += 1
+            # Process predictions
+            for i, det in enumerate(pred):  # per image
+                seen += 1
 
-                    imc = im0.copy()  # for save_crop
-                    annotator = Annotator(im0, line_width=1, example=str(names))
+                imc = im0.copy()  # for save_crop
+                annotator = Annotator(im0, line_width=1, example=str(names))
 
-                    if len(det):
-                        # Rescale boxes from img_size to im0 size
-                        det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
+                if len(det):
+                    # Rescale boxes from img_size to im0 size
+                    det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
 
-                        # Write results
-                        for *xyxy, conf, cls in reversed(det):
-                            c = int(cls)  # integer class
-                            label = f'{names[c]} {conf:.2f}'
-                            annotator.box_label(xyxy, label, color=colors(c, True))
+                    # Write results
+                    for *xyxy, conf, cls in reversed(det):
+                        c = int(cls)  # integer class
+                        label = f'{names[c]} {conf:.2f}'
+                        annotator.box_label(xyxy, label, color=colors(c, True))
 
-                            aux = save_one_box(xyxy, imc, BGR=True, save=False)
+                        aux = save_one_box(xyxy, imc, BGR=True, save=False)
 
-                            sign_img = cv2.resize(aux, (32, 32))
-                            sign_img = preprocessing(sign_img)
+                        sign_img = cv2.resize(aux, (32, 32))
+                        sign_img = preprocessing(sign_img)
 
-                            sign_img = sign_img.reshape(1, 32, 32, 1)
-                            # PREDICT IMAGE
-                            predictions = vgg_model.predict(sign_img)
-                            classIndex = vgg_model.predict_classes(sign_img)
-                            probabilityValue = np.amax(predictions)
-                            if probabilityValue > 0.85:
-                                if old_pred is None or old_pred != classIndex:  # add in queue different detections
-                                    old_pred = classIndex
-                                    aux = getCommandEncoding(classIndex, 0)
-                                    if aux != b'\x00\x00':
-                                        if commands_bin_queue.full():
-                                            commands_bin_queue.get_nowait()
-                                        commands_bin_queue.put(getCommandEncoding(classIndex, 0))
-                                    if commands_str_queue.full():
-                                        commands_str_queue.get_nowait()
-                                    commands_str_queue.put(getClassName(classIndex))
+                        sign_img = sign_img.reshape(1, 32, 32, 1)
+                        # PREDICT IMAGE
+                        predictions = vgg_model.predict(sign_img)
+                        classIndex = vgg_model.predict_classes(sign_img)
+                        probabilityValue = np.amax(predictions)
+                        if probabilityValue > 0.85:
+                            if old_pred is None or old_pred != classIndex:  # add in queue different detections
+                                old_pred = classIndex
+                                aux = getCommandEncoding(classIndex, 0)
+                                if aux != b'\x00\x00':
+                                    if commands_bin_queue.full():
+                                        commands_bin_queue.get_nowait()
+                                    commands_bin_queue.put(getCommandEncoding(classIndex, 0))
+                                if commands_str_queue.full():
+                                    commands_str_queue.get_nowait()
+                                commands_str_queue.put(getClassName(classIndex))
 
-                    else:
-                        old_pred = None
+                else:
+                    old_pred = None
 
-                    if show_processed_frames.is_set():
-                        with condition:
-                            # Stream results
-                            im0 = annotator.result()
-                            X_np = np.frombuffer(buffer=arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
-                            np.copyto(X_np, im0)
-                            condition.notify_all()
-                            # try:
-                            #     if processed_frame_queue.full():
-                            #         processed_frame_queue.get_nowait()
-                            #     processed_frame_queue.put(im0)
-                            # except queue.Empty as e:
-                            #     pass
-                # print(f'FPS:{ 1.0 / (time.time() - startTime)}  SIZE: {frames_queue.qsize()}')  # FPS = 1 / time to process loop
+                if show_processed_frames.is_set():
+                    with condition:
+                        # Stream results
+                        im0 = annotator.result()
+                        X_np = np.frombuffer(buffer=arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
+                        np.copyto(X_np, im0)
+                        condition.notify_all()
+                        # try:
+                        #     if processed_frame_queue.full():
+                        #         processed_frame_queue.get_nowait()
+                        #     processed_frame_queue.put(im0)
+                        # except queue.Empty as e:
+                        #     pass
+            # print(f'FPS:{ 1.0 / (time.time() - startTime)}  SIZE: {frames_queue.qsize()}')  # FPS = 1 / time to process loop
 
 
 event = Event()

@@ -99,17 +99,15 @@ class Window(QMainWindow):
         self.processed_frames_q = Queue(50)
         self.commands_str_q = Queue()
         self.con = Condition()
-        self.recv_cond = Condition()
         self.arr = RawArray(ctypes.c_ubyte, 128 * 160 * 3)
-        self.recv_arr = RawArray(ctypes.c_ubyte, 128 * 160 * 3)
 
         self.signDetectorStartedEvent = Event()
         self.showProcessedFramesEvent = Event()
 
-        self.socketReceiver_process = SocketProcess(arr=self.recv_arr, cond=self.recv_cond, commands_queue=self.commands_bin_q,
+        self.socketReceiver_process = SocketProcess(frames_queue=self.frames_q, commands_queue=self.commands_bin_q,
                                                     detector_started_event=self.signDetectorStartedEvent)
-        self.classifier_process = Process(target=detectAndClassifySign, args=(self.recv_arr, self.commands_bin_q,
-                                                                              self.recv_cond,
+        self.classifier_process = Process(target=detectAndClassifySign, args=(self.frames_q, self.commands_bin_q,
+                                                                              self.processed_frames_q,
                                                                               self.commands_str_q,
                                                                               self.signDetectorStartedEvent,
                                                                               self.showProcessedFramesEvent, self.con, self.arr))
