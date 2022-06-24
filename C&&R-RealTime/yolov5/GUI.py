@@ -3,6 +3,7 @@ from __future__ import print_function
 import json
 from time import sleep
 
+import numpy as np
 from PyQt5 import uic
 from PyQt5.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage, QPixmap
@@ -18,22 +19,32 @@ class ProcessedFramesViewer(QThread):
     changePixmap = pyqtSignal(QImage)
     changeLabel = pyqtSignal(str)
 
-    def __init__(self, frames_q, parent=None):
+    def __init__(self, arr, cond, parent=None):
         super(ProcessedFramesViewer, self).__init__(parent)
-        self.frames_q = frames_q
+        self.arr = arr
+        self.cond = cond
         self.run_flag = True
 
     def run(self):
         while self.run_flag:
             try:
-                if not self.frames_q.empty():
-                    frame = self.frames_q.get()
+                with self.cond:
+                    self.cond.wait()
+                    frame = np.frombuffer(self.arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
                     rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgbImage.shape
                     bytesPerLine = ch * w
                     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
                     p = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
                     self.changePixmap.emit(p)
+                # if not self.frames_q.empty():
+                #     frame = self.frames_q.get()
+                #     rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                #     h, w, ch = rgbImage.shape
+                #     bytesPerLine = ch * w
+                #     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
+                #     p = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
+                #     self.changePixmap.emit(p)
             except Exception as e:
                 print(e)
 
@@ -87,17 +98,21 @@ class Window(QMainWindow):
         self.commands_bin_q = Queue()
         self.processed_frames_q = Queue(50)
         self.commands_str_q = Queue()
+        self.con = Condition()
+        self.recv_cond = Condition()
+        self.arr = RawArray(ctypes.c_ubyte, 128 * 160 * 3)
+        self.recv_arr = RawArray(ctypes.c_ubyte, 128 * 160 * 3)
 
         self.signDetectorStartedEvent = Event()
         self.showProcessedFramesEvent = Event()
 
-        self.socketReceiver_process = SocketProcess(frames_queue=self.frames_q, commands_queue=self.commands_bin_q,
+        self.socketReceiver_process = SocketProcess(arr=self.recv_arr, cond=self.recv_cond, commands_queue=self.commands_bin_q,
                                                     detector_started_event=self.signDetectorStartedEvent)
-        self.classifier_process = Process(target=detectAndClassifySign, args=(self.frames_q, self.commands_bin_q,
-                                                                              self.processed_frames_q,
+        self.classifier_process = Process(target=detectAndClassifySign, args=(self.recv_arr, self.commands_bin_q,
+                                                                              self.recv_cond,
                                                                               self.commands_str_q,
                                                                               self.signDetectorStartedEvent,
-                                                                              self.showProcessedFramesEvent))
+                                                                              self.showProcessedFramesEvent, self.con, self.arr))
 
         self.socketReceiver_process.start()
         self.classifier_process.start()
@@ -210,7 +225,7 @@ class Window(QMainWindow):
     def showCameraStatusChanged(self):
         if self.showCamera_c.isChecked() and self.signsDetector_c.isChecked():
             self.showProcessedFramesEvent.set()
-            self.framesThreadViewer = ProcessedFramesViewer(self.processed_frames_q, self)
+            self.framesThreadViewer = ProcessedFramesViewer(self.arr, self.con, self)
             self.framesThreadViewer.changePixmap.connect(self.setFrame)
             self.framesThreadViewer.start()
         else:
