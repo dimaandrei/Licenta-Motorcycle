@@ -83,9 +83,9 @@ class Window(QMainWindow):
         # self.autoControlMenu.layout().insertWidget(0, self.webView)
         # self.webView.show()
 
-        self.frames_q = Queue()
+        self.frames_q = Queue(25)
         self.commands_bin_q = Queue()
-        self.processed_frames_q = Queue()
+        self.processed_frames_q = Queue(50)
         self.commands_str_q = Queue()
 
         self.signDetectorStartedEvent = Event()
@@ -296,7 +296,8 @@ class Window(QMainWindow):
         self.socketReceiver_process.terminate()
         if self.framesThreadViewer is not None and self.framesThreadViewer.isRunning():
             self.framesThreadViewer.terminate()
-
+        if self.signsDetectedThreadUpdater is not None and self.signsDetectedThreadUpdater.isRunning():
+            self.signsDetectedThreadUpdater.terminate()
         self.frames_q.close()
         self.commands_bin_q.close()
         self.frames_q.join_thread()

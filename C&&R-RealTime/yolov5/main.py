@@ -1,9 +1,12 @@
 import os
 import pickle
+import queue
 import socket
 import struct
 import sys
 import threading
+import time
+
 from multiprocessing import Process, Queue, Event
 from pathlib import Path
 from signal import signal, SIGINT
@@ -180,10 +183,14 @@ class SocketProcess(Process):
                     # we drop the frame if signs detector is not activated
                     continue
                 # print("Processing frame..")
-                if self.frames_queue.full():
-                    # we don't care about older frames if the queue is full
-                    self.frames_queue.get_nowait()
-                self.frames_queue.put(frame_data)
+                try:
+                    if self.frames_queue.full():
+                        # we don't care about older frames if the queue is full
+                        self.frames_queue.get_nowait()
+                    self.frames_queue.put(frame_data)
+                except queue.Empty as e:
+                    pass
+                    # print("Queue is empty!")
         except socket.error as e:
             print(f'Socket exception: {e}')
         except struct.error as e:
@@ -200,7 +207,7 @@ class SocketProcess(Process):
                     pass
                 else:
                     command = self.commands_queue.get()
-                    print(command)
+                    # print(command)
                     message = struct.pack("B", len(command)) + command
                     self.client_socket.sendall(message)
         except socket.error as e:
@@ -216,11 +223,11 @@ class SocketProcess(Process):
 @torch.no_grad()
 def detectAndClassifySign(frames_queue, commands_bin_queue, processed_frame_queue, commands_str_queue,
                           detector_started_event, show_processed_frames,
-                          img_sz=(320, 256)):
+                          img_sz=(160, 128)):
     print("Inference started!")
     # Load the VGG model
     vgg_model = tf.keras.models.load_model(ROOT / 'weights/model_vgg_training_v2.h5')
-
+    vgg_model.trainable = False
     # Load the YOLO model
     device = select_device('0')
     model = DetectMultiBackend(ROOT / 'weights/best.pt', device=device, dnn=False, data=ROOT / 'config.yaml')
@@ -233,6 +240,7 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, processed_frame_queu
     model.warmup(imgsz=(1 if pt else 1, 3, *img_sz))  # warmup
     old_pred = None
     while True:  # Condition here!
+        startTime = time.time()
         if detector_started_event.is_set() and not frames_queue.empty():
             # print("Detecting signs from frame..")
             frame_data = frames_queue.get()
@@ -262,7 +270,7 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, processed_frame_queu
                 seen += 1
 
                 imc = im0.copy()  # for save_crop
-                annotator = Annotator(im0, line_width=3, example=str(names))
+                annotator = Annotator(im0, line_width=1, example=str(names))
 
                 if len(det):
                     # Rescale boxes from img_size to im0 size
@@ -299,12 +307,17 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, processed_frame_queu
                 else:
                     old_pred = None
 
+
                 if show_processed_frames.is_set():
                     # Stream results
                     im0 = annotator.result()
-                    if processed_frame_queue.full():
-                        processed_frame_queue.get_nowait()
-                    processed_frame_queue.put(im0)
+                    try:
+                        if processed_frame_queue.full():
+                            processed_frame_queue.get_nowait()
+                        processed_frame_queue.put(im0)
+                    except queue.Empty as e:
+                        pass
+            # print(f'FPS:{ 1.0 / (time.time() - startTime)}  SIZE: {frames_queue.qsize()}')  # FPS = 1 / time to process loop
 
 
 event = Event()
