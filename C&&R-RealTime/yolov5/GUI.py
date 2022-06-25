@@ -3,11 +3,9 @@ from __future__ import print_function
 import json
 from time import sleep
 
-import numpy as np
 from PyQt5 import uic
 from PyQt5.QtCore import QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QImage, QPixmap
-# from PyQt5.QtWebEngineWidgets import (QWebEngineView)
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QMessageBox
 )
@@ -15,148 +13,131 @@ from PyQt5.QtWidgets import (
 from main import *
 
 
-class ProcessedFramesViewer(QThread):
-    changePixmap = pyqtSignal(QImage)
+class ProcessedFrameRecvThread(QThread):
+    changePixmapSignal = pyqtSignal(QImage)
 
-    def __init__(self, arr, cond, parent=None):
-        super(ProcessedFramesViewer, self).__init__(parent)
-        self.arr = arr
-        self.cond = cond
-        self.run_flag = True
+    def __init__(self, sharedByteArray, condition, parent=None):
+        super(ProcessedFrameRecvThread, self).__init__(parent)
+        self.sharedByteArray = sharedByteArray
+        self.condition = condition
+        self.runFlag = True
 
     def run(self):
-        while self.run_flag:
+        while self.runFlag:
             try:
-                with self.cond:
-                    self.cond.wait()
-                    frame = np.frombuffer(self.arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
+                with self.condition:
+                    self.condition.wait()
+                    frame = np.frombuffer(self.sharedByteArray, dtype=np.ubyte,
+                                          count=YOLO_FRAME_BYTES_NO).reshape(YOLO_FRAME_SHAPE)
                     rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgbImage.shape
                     bytesPerLine = ch * w
                     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
-                    p = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
-                    self.changePixmap.emit(p)
-                # if not self.frames_q.empty():
-                #     frame = self.frames_q.get()
-                #     rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                #     h, w, ch = rgbImage.shape
-                #     bytesPerLine = ch * w
-                #     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
-                #     p = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
-                #     self.changePixmap.emit(p)
+                    qFrame = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
+
+                    self.changePixmapSignal.emit(qFrame)
             except Exception as e:
                 print(e)
 
     def terminate(self) -> None:
-        self.run_flag = False
-        self.exit(0)
+        self.runFlag = False
+        with self.condition:
+            self.condition.notify()
 
 
-class ExtractedSignViewer(QThread):
-    changePixmap = pyqtSignal(QImage)
+class ExtractedSignRecvThread(QThread):
+    changePixmapSignal = pyqtSignal(QImage)
 
-    def __init__(self, signExtracted, cond, parent=None):
-        super(ExtractedSignViewer, self).__init__(parent)
-        self.signExtracted = signExtracted
-        self.cond = cond
-        self.run_flag = True
+    def __init__(self, sharedByteArraySign, condition, parent=None):
+        super(ExtractedSignRecvThread, self).__init__(parent)
+        self.sharedByteArraySign = sharedByteArraySign
+        self.condition = condition
+        self.runFlag = True
 
     def run(self):
-        while self.run_flag:
+        while self.runFlag:
             try:
-                with self.cond:
-                    self.cond.wait()
-                    frame = np.frombuffer(self.signExtracted, dtype=np.ubyte, count=3072).reshape((32, 32, 3))
+                with self.condition:
+                    self.condition.wait()
+                    frame = np.frombuffer(self.sharedByteArraySign,
+                                          dtype=np.ubyte, count=SIGN_EXTRACTED_BYTES_NO).reshape(SIGN_EXTRACTED_SHAPE)
                     rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     h, w, ch = rgbImage.shape
                     bytesPerLine = ch * w
                     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
-                    p = convertToQtFormat.scaled(100, 100, Qt.KeepAspectRatio)
+                    qFrame = convertToQtFormat.scaled(100, 100, Qt.KeepAspectRatio)
 
-                    self.changePixmap.emit(p)
-                # if not self.frames_q.empty():
-                #     frame = self.frames_q.get()
-                #     rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                #     h, w, ch = rgbImage.shape
-                #     bytesPerLine = ch * w
-                #     convertToQtFormat = QImage(rgbImage.data, w, h, bytesPerLine, QImage.Format_RGB888)
-                #     p = convertToQtFormat.scaled(320, 256, Qt.KeepAspectRatio)
-                #     self.changePixmap.emit(p)
+                    self.changePixmapSignal.emit(qFrame)
             except Exception as e:
                 print(e)
 
     def terminate(self) -> None:
-        self.run_flag = False
-        self.exit(0)
+        self.runFlag = False
+        with self.condition:
+            self.condition.notify()
 
 
-class SignsDetectedViewerUpdater(QThread):
-    changeLabel = pyqtSignal(str)
 
-    def __init__(self, commands_str_q, parent=None):
-        super(SignsDetectedViewerUpdater, self).__init__(parent)
-        self.commands_str_q = commands_str_q
-        self.run_flag = True
+
+class SignNameRecvThread(QThread):
+    changeLabelSignal = pyqtSignal(str)
+
+    def __init__(self, strCommandsQ, parent=None):
+        super(SignNameRecvThread, self).__init__(parent)
+        self.strCommandsQ = strCommandsQ
+        self.runFlag = True
 
     def run(self):
-        while self.run_flag:
+        while self.runFlag:
             try:
-                if not self.commands_str_q.empty():
-                    self.changeLabel.emit(self.commands_str_q.get())
+                if not self.strCommandsQ.empty():
+                    self.changeLabelSignal.emit(self.strCommandsQ.get())
             except Exception as e:
                 print(e)
 
     def terminate(self) -> None:
-        self.run_flag = False
-        self.exit(0)
+        self.runFlag = False
 
 
 class Window(QMainWindow):
     def __init__(self, parent=None, ):
         super().__init__(parent)
-        self.extractedSignViewerThread = None
-        self.framesThreadViewer = None
-        self.signsDetectedThreadUpdater = None
+        self.extractedSignRecvThread = None
+        self.processedFrameRecvThread = None
+        self.signNameRecvThread = None
         uic.loadUi('./ui/MainWindow.ui', self)  # Load the .ui file
-        self.darkTheme2 = self.loadColorJSON("./ui/themes/darkTheme")
+        self.darkTheme = self.loadColorJSON("./ui/themes/darkTheme")
         self.lightTheme = self.loadColorJSON("./ui/themes/lightTheme")
         self.connectSignalsSlots()
         self.setTheme("lightTheme")
-        self.angleSliderValue = 108
-        # WebEngine
-        # self.webView = QWebEngineView(self.verticalWidget)
-        # self.webView.setUrl(QtCore.QUrl("http:www.google.com"))
-        # self.webView.setObjectName("webView")
-        # # self.verticalLayout_2.insertWidget(0, self.webView)
-        # self.webView.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
-        # self.autoControlMenu.layout().insertWidget(0, self.webView)
-        # self.webView.show()
+        self.angleSliderValue = 108  # Middle
 
-        self.frames_q = Queue(25)
-        self.commands_bin_q = Queue()
+        self.piFramesQ = Queue(25)
+        self.binCommandsQ = Queue()
+        self.strCommandsQ = Queue()
 
-        self.commands_str_q = Queue()
-        self.availableProcessedFrameCondition = Condition()
-        self.availableExtractedSign = Condition()
-        self.yoloAnnotatedFrame = RawArray(ctypes.c_ubyte, 128 * 160 * 3)
-        self.yoloExtractedSign = RawArray(ctypes.c_ubyte, 32 * 32 * 3)
+        self.availableProcessedFrameCond = Condition()
+        self.availableExtractedSignCond = Condition()
+
+        self.yoloAnnotatedFrameBArr = RawArray(ctypes.c_ubyte, YOLO_FRAME_BYTES_NO)
+        self.yoloExtractedSignBArr = RawArray(ctypes.c_ubyte, SIGN_EXTRACTED_BYTES_NO)
 
         self.signDetectorStartedEvent = Event()
-        self.showProcessedFramesEvent = Event()
+        self.showProcessedFrameEvent = Event()
 
-        self.socketReceiver_process = SocketProcess(frames_queue=self.frames_q, commands_queue=self.commands_bin_q,
-                                                    detector_started_event=self.signDetectorStartedEvent)
-        self.classifier_process = Process(target=detectAndClassifySign, args=(self.frames_q, self.commands_bin_q,
-                                                                              self.commands_str_q,
-                                                                              self.signDetectorStartedEvent,
-                                                                              self.showProcessedFramesEvent,
-                                                                              self.availableProcessedFrameCondition,
-                                                                              self.availableExtractedSign,
-                                                                              self.yoloAnnotatedFrame,
-                                                                              self.yoloExtractedSign))
+        self.piSocketReceiverProcess = SocketProcess(framesQueue=self.piFramesQ, commandsQueue=self.binCommandsQ,
+                                                     detectorStartedEvent=self.signDetectorStartedEvent)
+        self.classifierProcess = Process(target=detectAndClassifySign, args=(self.piFramesQ, self.binCommandsQ,
+                                                                             self.strCommandsQ,
+                                                                             self.signDetectorStartedEvent,
+                                                                             self.showProcessedFrameEvent,
+                                                                             self.availableProcessedFrameCond,
+                                                                             self.availableExtractedSignCond,
+                                                                             self.yoloAnnotatedFrameBArr,
+                                                                             self.yoloExtractedSignBArr))
 
-        self.socketReceiver_process.start()
-        self.classifier_process.start()
+        self.piSocketReceiverProcess.start()
+        self.classifierProcess.start()
 
     def connectSignalsSlots(self):
         self.aboutButton.clicked.connect(self.about)
@@ -178,11 +159,11 @@ class Window(QMainWindow):
 
         self.activatePID_c.toggled.connect(self.pidStatusChanged)
         self.avoidCollision_c.toggled.connect(self.obstaclesDetectorStatusChanged)
-        self.signsDetector_c.toggled.connect(self.signsDetectorStatusChanged)
-        self.showCamera_c.toggled.connect(self.showCameraStatusChanged)
+        self.signsDetector_c.toggled.connect(self.signsDetectorCheckboxCallback)
+        self.showCamera_c.toggled.connect(self.showYoloFramesCheckboxCallback)
 
-        self.angleSlider.sliderPressed.connect(self.sliderPressed)
-        self.angleSlider.sliderReleased.connect(self.sliderReleased)
+        self.angleSlider.sliderPressed.connect(self.sliderPressedCallback)
+        self.angleSlider.sliderReleased.connect(self.sliderReleasedCallback)
 
     def goForward_pressed(self):
         aux = getCommandEncoding(22, self.speedSlider.value())
@@ -225,10 +206,10 @@ class Window(QMainWindow):
             sleep(0.1)
 
     def addUserCommand(self, command):
-        if self.commands_bin_q.full():
-            self.commands_bin_q.get_nowait()
+        if self.binCommandsQ.full():
+            self.binCommandsQ.get_nowait()
         if command != b'\x00\x00':
-            self.commands_bin_q.put(command)
+            self.binCommandsQ.put(command)
 
     def pidStatusChanged(self):
         aux = None
@@ -246,52 +227,57 @@ class Window(QMainWindow):
             aux = getCommandEncoding(26, 0)
         self.addUserCommand(aux)
 
-    def signsDetectorStatusChanged(self):
+    def signsDetectorCheckboxCallback(self):
         if self.signsDetector_c.isChecked():
             self.signDetectorStartedEvent.set()
             self.showCamera_c.setEnabled(True)
-            self.signsDetectedThreadUpdater = SignsDetectedViewerUpdater(self.commands_str_q, self)
-            self.signsDetectedThreadUpdater.changeLabel.connect(self.setLabel)
-            self.signsDetectedThreadUpdater.start()
+            self.signNameRecvThread = SignNameRecvThread(self.strCommandsQ, self)
+            self.signNameRecvThread.setObjectName("Sign name receiver THREAD")
+            self.signNameRecvThread.changeLabelSignal.connect(self.setSignNameLabelSlot)
+            self.signNameRecvThread.start()
+            self.signDetectedLine.setText("Sign detector activated..")
         else:
             self.signDetectorStartedEvent.clear()
             if self.showCamera_c.isChecked():
                 self.showCamera_c.toggle()
             self.showCamera_c.setEnabled(False)
-            self.signsDetectedThreadUpdater.changeLabel.disconnect(self.setLabel)
-            self.signsDetectedThreadUpdater.terminate()
+            self.signNameRecvThread.changeLabelSignal.disconnect(self.setSignNameLabelSlot)
+            self.signNameRecvThread.terminate()
             self.signDetectedLine.setText("Sign detector not activated!")
 
-    def showCameraStatusChanged(self):
+    def showYoloFramesCheckboxCallback(self):
         if self.showCamera_c.isChecked() and self.signsDetector_c.isChecked():
-            self.showProcessedFramesEvent.set()
-            self.framesThreadViewer = ProcessedFramesViewer(self.yoloAnnotatedFrame,
-                                                            self.availableProcessedFrameCondition, self)
-            self.framesThreadViewer.changePixmap.connect(self.setFrame)
-            self.framesThreadViewer.start()
+            self.showProcessedFrameEvent.set()
+            self.processedFrameRecvThread = ProcessedFrameRecvThread(self.yoloAnnotatedFrameBArr,
+                                                                     self.availableProcessedFrameCond, self)
+            self.processedFrameRecvThread.setObjectName("Processed YOLO frame receiver THREAD")
+            self.processedFrameRecvThread.changePixmapSignal.connect(self.setYoloProcessedFrameSlot)
+            self.processedFrameRecvThread.start()
 
-            self.extractedSignViewerThread = ExtractedSignViewer(self.yoloExtractedSign,
-                                                                 self.availableExtractedSign, self)
-            self.extractedSignViewerThread.changePixmap.connect(self.setExtractedSignFrame)
-            self.extractedSignViewerThread.start()
-        else:
-            self.showProcessedFramesEvent.clear()
-            self.framesThreadViewer.changePixmap.disconnect(self.setFrame)
-            self.framesThreadViewer.terminate()
+            self.extractedSignRecvThread = ExtractedSignRecvThread(self.yoloExtractedSignBArr,
+                                                                   self.availableExtractedSignCond, self)
+            self.extractedSignRecvThread.setObjectName("Extracted sign frame receiver THREAD")
+            self.extractedSignRecvThread.changePixmapSignal.connect(self.setExtractedSignFrameSlot)
+            self.extractedSignRecvThread.start()
+        elif not self.showCamera_c.isChecked():
+            self.showProcessedFrameEvent.clear()
+
+            self.processedFrameRecvThread.changePixmapSignal.disconnect(self.setYoloProcessedFrameSlot)
+            self.processedFrameRecvThread.terminate()
             self.frameViewerLabel.setText("\tImage preview not selected")
 
-            self.extractedSignViewerThread.changePixmap.disconnect(self.setExtractedSignFrame)
-            self.extractedSignViewerThread.terminate()
+            self.extractedSignRecvThread.changePixmapSignal.disconnect(self.setExtractedSignFrameSlot)
+            self.extractedSignRecvThread.terminate()
             self.signDetectedLabel.setText("      Sign")
 
-    def sliderPressed(self):
+    def sliderPressedCallback(self):
         self.angleSliderValue = self.angleSlider.value()
 
-    def sliderReleased(self):
+    def sliderReleasedCallback(self):
         if self.angleSlider.value() != self.angleSliderValue:
-            self.angleSliderChanged()
+            self.angleSliderChangedCallback()
 
-    def angleSliderChanged(self):
+    def angleSliderChangedCallback(self):
         if self.angleSlider.value() < self.angleSliderValue:  # to the right
             for i in reversed(range(self.angleSlider.value(), self.angleSliderValue - 1, 1)):  # 106
                 aux = getCommandEncoding(24, i)
@@ -304,22 +290,22 @@ class Window(QMainWindow):
                 sleep(0.1)
 
     @pyqtSlot(QImage)
-    def setFrame(self, image):
+    def setYoloProcessedFrameSlot(self, image):
         self.frameViewerLabel.setPixmap(QPixmap.fromImage(image))
 
     @pyqtSlot(QImage)
-    def setExtractedSignFrame(self, image):
+    def setExtractedSignFrameSlot(self, image):
         self.signDetectedLabel.setPixmap(QPixmap.fromImage(image))
 
     @pyqtSlot(str)
-    def setLabel(self, string):
+    def setSignNameLabelSlot(self, string):
         self.signDetectedLine.setText(string)
 
     def about(self):
         QMessageBox.about(
             self,
             "About 'Moto-App'",
-            "<p>A sample app built with:</p>"
+            "<p>GUI built with:</p>"
             "<p>- PyQt</p>"
             "<p>- Qt Designer</p>"
             "<p>- Python</p>",
@@ -362,19 +348,29 @@ class Window(QMainWindow):
 
     def closeEvent(self, close_event):
         print("Exiting all child processes..")
-        self.classifier_process.terminate()
-        self.socketReceiver_process.terminate()
-        if self.framesThreadViewer is not None and self.framesThreadViewer.isRunning():
-            self.framesThreadViewer.terminate()
-        if self.signsDetectedThreadUpdater is not None and self.signsDetectedThreadUpdater.isRunning():
-            self.signsDetectedThreadUpdater.terminate()
-        if self.extractedSignViewerThread is not None and self.extractedSignViewerThread.isRunning():
-            self.extractedSignViewerThread.terminate()
 
-        self.frames_q.close()
-        self.commands_bin_q.close()
-        self.frames_q.join_thread()
-        self.commands_bin_q.join_thread()
+        self.classifierProcess.terminate()
+        self.piSocketReceiverProcess.terminate()
+
+        if self.processedFrameRecvThread is not None and self.processedFrameRecvThread.isRunning():
+            self.processedFrameRecvThread.terminate()
+        if self.signNameRecvThread is not None and self.signNameRecvThread.isRunning():
+            self.signNameRecvThread.terminate()
+        if self.extractedSignRecvThread is not None and self.extractedSignRecvThread.isRunning():
+            self.extractedSignRecvThread.terminate()
+
+        # with self.availableProcessedFrameCond:
+        #     self.availableProcessedFrameCond.notify()
+        # with self.availableExtractedSignCond:
+        #     self.availableExtractedSignCond.notify()
+
+        self.piFramesQ.close()
+        self.binCommandsQ.close()
+        self.strCommandsQ.close()
+
+        self.piFramesQ.join_thread()
+        self.binCommandsQ.join_thread()
+        self.strCommandsQ.join_thread()
         close_event.accept()
 
 

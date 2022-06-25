@@ -7,7 +7,6 @@ import struct
 import sys
 import threading
 import time
-
 from multiprocessing import Process, Queue, Event, Condition, RawArray
 from pathlib import Path
 from signal import signal, SIGINT
@@ -31,6 +30,11 @@ ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+
+YOLO_FRAME_SHAPE = (128, 160, 3)
+SIGN_EXTRACTED_SHAPE = (32, 32, 3)
+YOLO_FRAME_BYTES_NO = YOLO_FRAME_SHAPE[0] * YOLO_FRAME_SHAPE[1] * YOLO_FRAME_SHAPE[2]
+SIGN_EXTRACTED_BYTES_NO = SIGN_EXTRACTED_SHAPE[0] * SIGN_EXTRACTED_SHAPE[1] * SIGN_EXTRACTED_SHAPE[2]
 
 
 def grayscale(in_img):
@@ -144,51 +148,53 @@ def getCommandEncoding(commandNo, execValue):
 # address = ('192.168.32.161', 10050)
 
 class SocketProcess(Process):
-    def __init__(self, frames_queue, commands_queue, detector_started_event, host='192.168.0.187', port=10050):
+    def __init__(self, framesQueue, commandsQueue, detectorStartedEvent, host='192.168.0.187', port=10050):
         super(SocketProcess, self).__init__()
-        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.host_ip = host
+        self.clientSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.hostIp = host
         self.port = port
-        self.commands_queue = commands_queue
-        self.frames_queue = frames_queue
-        self.detector_started_event = detector_started_event
+        self.commandsQueue = commandsQueue
+        self.framesQueue = framesQueue
+        self.detectorStartedEvent = detectorStartedEvent
         self.runSendThread = True
-        self.send_thread = threading.Thread(target=self.threadToWaitForPredictionAndSend)
+        self.sendSocketCommandsThread = threading.Thread(target=self.threadToWaitForPredictionAndSend)
 
     def run(self) -> None:
         try:
-            self.client_socket.connect((self.host_ip, self.port))
-            self.send_thread.start()
+            self.clientSocket.connect((self.hostIp, self.port))
+            self.sendSocketCommandsThread.start()
             data = b''
             # Q: unsigned long long integer(8 bytes)
-            payload_size = struct.calcsize("Q")
+            payloadSize = struct.calcsize("Q")
 
             while True:  # shared condition here!!
 
-                while len(data) < payload_size:
-                    packet = self.client_socket.recv(4 * 1024)
+                while len(data) < payloadSize:
+                    packet = self.clientSocket.recv(4 * 1024)
                     if not packet:
                         break
                     data += packet
                     # print(f'{len(data)}-{payload_size}')
 
-                packed_msg_size = data[:payload_size]
-                data = data[payload_size:]
-                msg_size = struct.unpack("Q", packed_msg_size)[0]
+                packedMsgSize = data[:payloadSize]
+                data = data[payloadSize:]
+                msgSize = struct.unpack("Q", packedMsgSize)[0]
 
-                while len(data) < msg_size:
-                    data += self.client_socket.recv(4 * 1024)
-                frame_data = data[:msg_size]
-                data = data[msg_size:]
-                if not self.detector_started_event.is_set():
+                while len(data) < msgSize:
+                    data += self.clientSocket.recv(4 * 1024)
+                frame_data = data[:msgSize]
+                data = data[msgSize:]
+
+                if not self.detectorStartedEvent.is_set():
                     # we drop the frame if signs detector is not activated
                     continue
+
                 # print("Processing frame..")
                 try:
-                    if self.frames_queue.full():
+                    if self.framesQueue.full():
                         # we don't care about older frames if the queue is full
-                        self.frames_queue.get_nowait()
-                    self.frames_queue.put(frame_data)
+                        self.framesQueue.get_nowait()
+                    self.framesQueue.put(frame_data)
                 except queue.Empty as e:
                     pass
                     # print("Queue is empty!")
@@ -198,59 +204,60 @@ class SocketProcess(Process):
             print(f'Struct exception: {e}')
         finally:
             self.runSendThread = False
-            if self.send_thread.is_alive():
-                self.send_thread.join()
+            if self.sendSocketCommandsThread.is_alive():
+                self.sendSocketCommandsThread.join()
 
     def threadToWaitForPredictionAndSend(self):
         try:
             while self.runSendThread:
-                if self.commands_queue.empty():
+                if self.commandsQueue.empty():
                     pass
                 else:
-                    command = self.commands_queue.get()
+                    command = self.commandsQueue.get()
                     # print(command)
                     message = struct.pack("B", len(command)) + command
-                    self.client_socket.sendall(message)
+                    self.clientSocket.sendall(message)
         except socket.error as e:
             print(f'Socket exception: {e}')
 
     def terminate(self) -> None:
         self.runSendThread = False
-        if self.send_thread.is_alive():
-            self.send_thread.join()
+        if self.sendSocketCommandsThread.is_alive():
+            self.sendSocketCommandsThread.join()
         super(SocketProcess, self).terminate()
 
 
 @torch.no_grad()
-def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
-                          detector_started_event, show_processed_frames, condition, condition2, arr, extractedSign,
-                          img_sz=(160, 128)):
+def detectAndClassifySign(framesQueue, byteCommandsQueue, strCommandsQueue,
+                          detectorStartedEvent, showProcessedFrameEvent, writeYoloFrameCondition,
+                          writeExtractedSignCondition, processedFrameSharedArray, extractedSignSharedArray,
+                          imgSize=(160, 128)):
     print("Inference started!")
     # Load the VGG model
-    vgg_model = tf.keras.models.load_model(ROOT / 'weights/model_vgg_training_v2.h5')
-    vgg_model.trainable = False
+    vggTrainedModel = tf.keras.models.load_model(ROOT / 'weights/model_vgg_training_v2.h5')
+    vggTrainedModel.trainable = False
     # Load the YOLO model
     device = select_device('0')
     model = DetectMultiBackend(ROOT / 'weights/best.pt', device=device, dnn=False, data=ROOT / 'config.yaml')
     stride, names, pt = model.stride, model.names, model.pt
-    img_sz = check_img_size(img_sz, s=stride)  # check image size
+    imgSize = check_img_size(imgSize, s=stride)  # check image size
 
     # Dataloader
     cudnn.benchmark = True  # set True to speed up constant image size inference
 
-    model.warmup(imgsz=(1 if pt else 1, 3, *img_sz))  # warmup
-    old_pred = None
+    model.warmup(imgsz=(1 if pt else 1, 3, *imgSize))  # warmup
+    lastPrediction = None
     while True:  # Condition here!
         startTime = time.time()
-        if detector_started_event.is_set() and not frames_queue.empty():
+        if detectorStartedEvent.is_set() and not framesQueue.empty():
             # print("Detecting signs from frame..")
-            frame_data = frames_queue.get()
-            frame = pickle.loads(frame_data)
-            np_arr = np.frombuffer(frame, np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            im0 = frame.copy()
+            framePickle = framesQueue.get()
+            frame = pickle.loads(framePickle)
+            npFrameArray = np.frombuffer(frame, np.uint8)
+            frame = cv2.imdecode(npFrameArray, cv2.IMREAD_COLOR)
+            originalImg = frame.copy()
 
-            frame = letterbox(frame, img_sz, stride=stride, auto=pt)[0]
+            frame = letterbox(frame, imgSize, stride=stride, auto=pt)[0]
             frame = frame.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
             frame = np.ascontiguousarray(frame)
 
@@ -260,21 +267,21 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
             im /= 255  # 0 - 255 to 0.0 - 1.0
             if len(im.shape) == 3:
                 im = im[None]  # expand for batch dim
-            pred = model(im, augment=False,
-                         visualize=False)  # We don't want to augment inference or visualize features at this moment
+            predictions = model(im, augment=False,
+                                visualize=False)  # We don't want to augment inference or visualize features at this moment
 
             # NMS
-            pred = non_max_suppression(pred, conf_thres=0.25, iou_thres=0.45, max_det=10)
+            predictions = non_max_suppression(predictions, conf_thres=0.25, iou_thres=0.45, max_det=10)
 
             # Process predictions
-            for i, det in enumerate(pred):  # per image
+            for i, det in enumerate(predictions):  # per image
                 seen += 1
 
-                imc = im0.copy()  # for save_crop
-                annotator = Annotator(im0, line_width=1, example=str(names))
+                auxImgForCropping = originalImg.copy()  # for save_crop
+                annotator = Annotator(originalImg, line_width=1, example=str(names))
                 if len(det):
                     # Rescale boxes from img_size to im0 size
-                    det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
+                    det[:, :4] = scale_coords(im.shape[2:], det[:, :4], originalImg.shape).round()
 
                     # Write results
                     for *xyxy, conf, cls in reversed(det):
@@ -282,53 +289,56 @@ def detectAndClassifySign(frames_queue, commands_bin_queue, commands_str_queue,
                         label = f'{names[c]} {conf:.2f}'
                         annotator.box_label(xyxy, label, color=colors(c, True))
 
-                        aux = save_one_box(xyxy, imc, BGR=True, save=False)
+                        signExtracted = save_one_box(xyxy, auxImgForCropping, BGR=True, save=False)
 
-                        sign_img = cv2.resize(aux, (32, 32))
+                        signExtracted = cv2.resize(signExtracted, (32, 32))
 
-                        if show_processed_frames.is_set():
-                            with condition2:
-                                temp2 = np.frombuffer(buffer=extractedSign, dtype=np.ubyte, count=3072).reshape(
+                        if showProcessedFrameEvent.is_set():
+                            with writeExtractedSignCondition:
+                                temp2 = np.frombuffer(buffer=extractedSignSharedArray, dtype=np.ubyte,
+                                                      count=SIGN_EXTRACTED_BYTES_NO).reshape(
                                     (32, 32, 3))
-                                np.copyto(temp2, sign_img)
-                                condition2.notify_all()
+                                np.copyto(temp2, signExtracted)
+                                writeExtractedSignCondition.notify_all()
 
-                        sign_img = preprocessing(sign_img)
+                        signPreprocessed = preprocessing(signExtracted)
 
-                        sign_img = sign_img.reshape(1, 32, 32, 1)
+                        signPreprocessed = signPreprocessed.reshape(1, 32, 32, 1)
                         # PREDICT IMAGE
-                        predictions = vgg_model.predict(sign_img)
-                        classIndex = vgg_model.predict_classes(sign_img)
-                        probabilityValue = np.amax(predictions)
+                        vggPredictions = vggTrainedModel.predict(signPreprocessed)
+                        classIndex = vggTrainedModel.predict_classes(signPreprocessed)
+                        probabilityValue = np.amax(vggPredictions)
                         if probabilityValue > 0.85:
-                            if old_pred is None or old_pred != classIndex:  # add in queue different detections
-                                old_pred = classIndex
+                            if lastPrediction is None or lastPrediction != classIndex:  # add in queue different detections
+                                lastPrediction = classIndex
                                 aux = getCommandEncoding(classIndex, 0)
                                 if aux != b'\x00\x00':
-                                    if commands_bin_queue.full():
-                                        commands_bin_queue.get_nowait()
-                                    commands_bin_queue.put(getCommandEncoding(classIndex, 0))
-                                if commands_str_queue.full():
-                                    commands_str_queue.get_nowait()
-                                commands_str_queue.put(getClassName(classIndex))
+                                    if byteCommandsQueue.full():
+                                        byteCommandsQueue.get_nowait()
+                                    byteCommandsQueue.put(getCommandEncoding(classIndex, 0))
+                                if strCommandsQueue.full():
+                                    strCommandsQueue.get_nowait()
+                                strCommandsQueue.put(getClassName(classIndex))
 
                 else:
-                    old_pred = None
+                    lastPrediction = None
 
-                if show_processed_frames.is_set():
-                    with condition:
+                if showProcessedFrameEvent.is_set():
+                    with writeYoloFrameCondition:
                         # Stream results
-                        im0 = annotator.result()
-                        temp1 = np.frombuffer(buffer=arr, dtype=np.ubyte, count=61440).reshape((128, 160, 3))
-                        np.copyto(temp1, im0)
-                        condition.notify_all()
+                        originalImg = annotator.result()
+                        temp1 = np.frombuffer(buffer=processedFrameSharedArray, dtype=np.ubyte, count=61440).reshape(
+                            (128, 160, 3))
+                        np.copyto(temp1, originalImg)
+                        writeYoloFrameCondition.notify_all()
                         # try:
                         #     if processed_frame_queue.full():
                         #         processed_frame_queue.get_nowait()
                         #     processed_frame_queue.put(im0)
                         # except queue.Empty as e:
                         #     pass
-            # print(f'FPS:{ 1.0 / (time.time() - startTime)}  SIZE: {frames_queue.qsize()}')  # FPS = 1 / time to process loop
+            # print(f'FPS:{ 1.0 / (time.time() - startTime)}  SIZE: {frames_queue.qsize()}')  # FPS = 1 / time to
+            # process loop
 
 
 event = Event()
@@ -343,34 +353,36 @@ def main():
     # detectAndClassifySign()
     signal(SIGINT, handler)
 
-    frames_q = Queue(50)
-    commands_q = Queue()
-    processed_frame_q = Queue()
-    commands_str_q = Queue()
-    detector_started_event = Event()
-    show_processed_frames = Event()
-    detector_event = Event()
-    socketReceiver_process = SocketProcess(frames_queue=frames_q,
-                                           commands_queue=commands_q, detector_started_event=detector_event)
-    classifier_process = Process(target=detectAndClassifySign, args=(frames_q, commands_q, processed_frame_q,
-                                                                     commands_str_q, detector_started_event,
-                                                                     show_processed_frames))
+    framesQ = Queue(50)
+    commandsQ = Queue()
+    strCommandsQ = Queue()
+    detectorStartedEvent = Event()
+    showProcessedFrameEvent = Event()
+    socketReceiverProcess = SocketProcess(framesQueue=framesQ,
+                                          commandsQueue=commandsQ, detectorStartedEvent=detectorStartedEvent)
 
-    socketReceiver_process.start()
-    classifier_process.start()
+    # Declare RawArray for testing this!!
+    classifierProcess = Process(target=detectAndClassifySign, args=(framesQ, commandsQ, strCommandsQ,
+                                                                    detectorStartedEvent,
+                                                                    showProcessedFrameEvent))
+
+    socketReceiverProcess.start()
+    classifierProcess.start()
 
     print('Running. Press CTRL-C to exit.')
 
     while True:
         if event.is_set():
             print("Exiting all child processes..")
-            classifier_process.terminate()
-            socketReceiver_process.terminate()
+            classifierProcess.terminate()
+            socketReceiverProcess.terminate()
 
-            frames_q.close()
-            commands_q.close()
-            frames_q.join_thread()
-            commands_q.join_thread()
+            framesQ.close()
+            commandsQ.close()
+            strCommandsQ.close()
+            framesQ.join_thread()
+            commandsQ.join_thread()
+            strCommandsQ.join_thread()
             # Terminating main process
             exit(0)
 
