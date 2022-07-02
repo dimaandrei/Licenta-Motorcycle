@@ -182,25 +182,45 @@ class Window(QMainWindow):
         self.addUserCommand(aux)
 
     def goToTheRight_pressed(self):
-        for i in reversed(range(80, self.angleSlider.value() - 2, 2)):  # 106
+        if not self.backwardsTurn_c.isChecked():
+            self.goForward_pressed()
+        else:
+            self.goBackwards_pressed()
+        self.backwardsTurn_c.setEnabled(False)
+        for i in reversed(range(108-self.rateOfTurnSlider.value(), self.angleSlider.value() - 2, 2)):  # 106
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
 
     def goToTheRight_released(self):
-        for i in range(82, self.angleSlider.value(), 2):  # 108
+        if not self.backwardsTurn_c.isChecked():
+            self.goForward_released()
+        else:
+            self.goBackwards_released()
+        self.backwardsTurn_c.setEnabled(True)
+        for i in range(108-self.rateOfTurnSlider.value()+2, self.angleSlider.value(), 2):  # 82 && 108
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
 
     def goToTheLeft_pressed(self):
-        for i in range(self.angleSlider.value() + 2, 136, 2):  # 110
+        if not self.backwardsTurn_c.isChecked():
+            self.goForward_pressed()
+        else:
+            self.goBackwards_pressed()
+        self.backwardsTurn_c.setEnabled(False)
+        for i in range(self.angleSlider.value() + 2, 108+self.rateOfTurnSlider.value(), 2):  # 110 && 136
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
 
     def goToTheLeft_released(self):
-        for i in reversed(range(self.angleSlider.value(), 134, 2)):  # 108
+        if not self.backwardsTurn_c.isChecked():
+            self.goForward_released()
+        else:
+            self.goBackwards_released()
+        self.backwardsTurn_c.setEnabled(True)
+        for i in reversed(range(self.angleSlider.value(), 108+self.rateOfTurnSlider.value()-2, 2)):  # 108 && 134
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
