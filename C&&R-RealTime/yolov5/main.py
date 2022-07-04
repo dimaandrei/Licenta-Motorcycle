@@ -91,15 +91,15 @@ def getCommandEncoding(commandNo, execValue):
     elif commandNo == 7:  # No entry - speed = 0
         return b'\x02\x00'
     elif commandNo == 0:  # 30km/h - speed = 0
-        return b'\x02\x50'
+        return b'\x02\x30'
     elif commandNo == 1:  # 50km/h - speed = 0
-        return b'\x02\x70'
+        return b'\x02\x40'
     elif commandNo == 2:  # 70km/h - speed = 0
-        return b'\x02\x80'
+        return b'\x02\x50'
     elif commandNo == 8:  # turn right ahead
-        return b'\x03\x4E'
+        return b'\x03\x5C'
     elif commandNo == 9:  # turn left ahead 
-        return b'\x03\x8A'
+        return b'\x03\x7C'
     elif commandNo == 10:  # go straight ahead
         return b'\x03\x6C'
 

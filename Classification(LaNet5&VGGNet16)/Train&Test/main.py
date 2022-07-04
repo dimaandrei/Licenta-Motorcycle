@@ -147,7 +147,7 @@ class Network:
         return model
 
     def VGG_Model(self):
-        size_of_pool = (2, 2)  # SCALE DOWN ALL FEATURE MAP TO GERNALIZE MORE, TO REDUCE OVERFITTING
+        size_of_pool = (2, 2)  # SCALE DOWN ALL FEATURE MAP TO GENERALIZE MORE, TO REDUCE OVERFITTING
 
         model = Sequential()
 
@@ -157,43 +157,47 @@ class Network:
         # Layer 2 (Convolutional): Input = 32x32x32. Output = 32x32x32.
         model.add(Conv2D(32, (3, 3), input_shape=(32, 32, 32), padding='same', activation='relu'))
 
-        # Layer 3 - Pooling: Input = 32x32x32. Output = 16x16x32.
+        # Pooling: Input = 32x32x32. Output = 16x16x32.
         model.add(MaxPooling2D(pool_size=size_of_pool, padding='valid'))
         model.add(Dropout(0.3))
 
-        # Layer 4 (Convolutional):Input = 16x16x32. Output = 16x16x64.
+        # Layer 3 (Convolutional):Input = 16x16x32. Output = 16x16x64.
         model.add((Conv2D(64, (3, 3), input_shape=(16, 16, 32), padding='same', activation='relu')))
 
-        # Layer 5 (Convolutional): Input = 16x16x64. Output = 16x16x64.
+        # Layer 4 (Convolutional): Input = 16x16x64. Output = 16x16x64.
         model.add((Conv2D(64, (3, 3), input_shape=(16, 16, 64), padding='same', activation='relu')))
 
-        # Layer 6 (Pooling): Input = 16x16x64. Output = 8x8x64.
+        # Pooling: Input = 16x16x64. Output = 8x8x64.
         model.add(MaxPooling2D(pool_size=size_of_pool, padding='valid'))
         model.add(Dropout(0.3))
 
-        # Layer 7 (Convolutional): Input = 8x8x64. Output = 8x8x128.
+        # Layer 5 (Convolutional): Input = 8x8x64. Output = 8x8x128.
         model.add((Conv2D(128, (3, 3), input_shape=(8, 8, 64), padding='same', activation='relu')))
 
-        # Layer 8 (Convolutional): Input = 8x8x128. Output = 8x8x128
+        # Layer 6 (Convolutional): Input = 8x8x128. Output = 8x8x128
         model.add((Conv2D(128, (3, 3), input_shape=(8, 8, 128), padding='same', activation='relu')))
 
-        # Layer 9 (Pooling): Input = 8x8x128. Output = 4x4x128.
+        # Layer 7 (Convolutional): Input = 8x8x128. Output = 8x8x128
+        model.add((Conv2D(128, (3, 3), input_shape=(8, 8, 128), padding='same', activation='relu')))
+
+        # Pooling: Input = 8x8x128. Output = 4x4x128.
         model.add(MaxPooling2D(pool_size=size_of_pool, padding='valid'))
         model.add(Dropout(0.3))
 
         # Flatten. Input = 4x4x128. Output = 2048.
         model.add(Flatten())
 
-        # Layer 10 (Fully Connected): Input = 2048. Output = 128.
+        # Layer 8 (Fully Connected): Input = 2048. Output = 128.
         model.add(Dense(128, activation='relu'))
         model.add(Dropout(0.5))
 
-        # Layer 11 (Fully Connected): Input = 128. Output = 128.
+        # Layer 9 (Fully Connected): Input = 128. Output = 128.
         model.add(Dense(128, activation='relu'))
         model.add(Dropout(0.5))
 
-        # Layer 12 (Fully Connected): Input = 128. Output = no_of_labels.
+        # Layer 10 (Fully Connected): Input = 128. Output = no_of_labels.
         model.add(Dense(len(self.data.labels), activation='softmax'))  # OUTPUT LAYER
+
         # Compile the model
         model.compile(Adam(learning_rate=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
         return model

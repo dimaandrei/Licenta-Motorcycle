@@ -166,6 +166,8 @@ class Window(QMainWindow):
         self.angleSlider.sliderReleased.connect(self.sliderReleasedCallback)
 
     def goForward_pressed(self):
+        aux = getCommandEncoding(24, 108)
+        self.addUserCommand(aux)
         aux = getCommandEncoding(22, self.speedSlider.value())
         self.addUserCommand(aux)
 
@@ -174,6 +176,8 @@ class Window(QMainWindow):
         self.addUserCommand(aux)
 
     def goBackwards_pressed(self):
+        aux = getCommandEncoding(24, 108)
+        self.addUserCommand(aux)
         aux = getCommandEncoding(23, self.speedSlider.value())
         self.addUserCommand(aux)
 
@@ -358,6 +362,10 @@ class Window(QMainWindow):
         self.speakBotton.setStyleSheet(f'background-color: {theme["buttons"]}')
         self.frameViewerLabel.setStyleSheet(f'background-color: {theme["menuBar"]}')
         self.signDetectedLabel.setStyleSheet(f'background-color: {theme["menuBar"]}')
+        self.goForward.setStyleSheet(f'background-color: {theme["menuBar"]}')
+        self.goToTheLeft.setStyleSheet(f'background-color: {theme["menuBar"]}')
+        self.goToTheRight.setStyleSheet(f'background-color: {theme["menuBar"]}')
+        self.goBackwards.setStyleSheet(f'background-color: {theme["menuBar"]}')
 
     @staticmethod
     def loadColorJSON(filePath):
