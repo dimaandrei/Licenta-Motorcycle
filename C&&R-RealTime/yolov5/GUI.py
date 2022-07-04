@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import ctypes
 import json
 from time import sleep
 
@@ -9,6 +10,7 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QMessageBox
 )
+from multiprocessing import Condition, RawArray
 
 from main import *
 
@@ -75,8 +77,6 @@ class ExtractedSignRecvThread(QThread):
         self.runFlag = False
         with self.condition:
             self.condition.notify()
-
-
 
 
 class SignNameRecvThread(QThread):
@@ -191,7 +191,7 @@ class Window(QMainWindow):
         else:
             self.goBackwards_pressed()
         self.backwardsTurn_c.setEnabled(False)
-        for i in reversed(range(108-self.rateOfTurnSlider.value(), self.angleSlider.value() - 2, 2)):  # 106
+        for i in reversed(range(108 - self.rateOfTurnSlider.value(), self.angleSlider.value() - 2, 2)):  # 106
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
@@ -202,7 +202,7 @@ class Window(QMainWindow):
         else:
             self.goBackwards_released()
         self.backwardsTurn_c.setEnabled(True)
-        for i in range(108-self.rateOfTurnSlider.value()+2, self.angleSlider.value(), 2):  # 82 && 108
+        for i in range(108 - self.rateOfTurnSlider.value() + 2, self.angleSlider.value(), 2):  # 82 && 108
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
@@ -213,7 +213,7 @@ class Window(QMainWindow):
         else:
             self.goBackwards_pressed()
         self.backwardsTurn_c.setEnabled(False)
-        for i in range(self.angleSlider.value() + 2, 108+self.rateOfTurnSlider.value(), 2):  # 110 && 136
+        for i in range(self.angleSlider.value() + 2, 108 + self.rateOfTurnSlider.value(), 2):  # 110 && 136
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
@@ -224,7 +224,7 @@ class Window(QMainWindow):
         else:
             self.goBackwards_released()
         self.backwardsTurn_c.setEnabled(True)
-        for i in reversed(range(self.angleSlider.value(), 108+self.rateOfTurnSlider.value()-2, 2)):  # 108 && 134
+        for i in reversed(range(self.angleSlider.value(), 108 + self.rateOfTurnSlider.value() - 2, 2)):  # 108 && 134
             aux = getCommandEncoding(24, i)
             self.addUserCommand(aux)
             sleep(0.1)
@@ -236,7 +236,6 @@ class Window(QMainWindow):
             self.binCommandsQ.put(command)
 
     def pidStatusChanged(self):
-        aux = None
         if self.activatePID_c.isChecked():
             aux = getCommandEncoding(20, 0)
         else:
@@ -244,7 +243,6 @@ class Window(QMainWindow):
         self.addUserCommand(aux)
 
     def obstaclesDetectorStatusChanged(self):
-        aux = None
         if self.avoidCollision_c.isChecked():
             aux = getCommandEncoding(25, 0)
         else:
@@ -292,7 +290,7 @@ class Window(QMainWindow):
 
             self.extractedSignRecvThread.changePixmapSignal.disconnect(self.setExtractedSignFrameSlot)
             self.extractedSignRecvThread.terminate()
-            self.signDetectedLabel.setText("      Sign")
+            self.signDetectedLabel.setText("       Sign")
 
     def sliderPressedCallback(self):
         self.angleSliderValue = self.angleSlider.value()
@@ -386,11 +384,6 @@ class Window(QMainWindow):
             self.signNameRecvThread.terminate()
         if self.extractedSignRecvThread is not None and self.extractedSignRecvThread.isRunning():
             self.extractedSignRecvThread.terminate()
-
-        # with self.availableProcessedFrameCond:
-        #     self.availableProcessedFrameCond.notify()
-        # with self.availableExtractedSignCond:
-        #     self.availableExtractedSignCond.notify()
 
         self.piFramesQ.close()
         self.binCommandsQ.close()

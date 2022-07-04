@@ -1,4 +1,3 @@
-import ctypes
 import os
 import pickle
 import queue
@@ -7,7 +6,7 @@ import struct
 import sys
 import threading
 import time
-from multiprocessing import Process, Queue, Event, Condition, RawArray
+from multiprocessing import Process, Queue, Event
 from pathlib import Path
 from signal import signal, SIGINT
 from sys import exit
@@ -167,8 +166,7 @@ class SocketProcess(Process):
             # Q: unsigned long long integer(8 bytes)
             payloadSize = struct.calcsize("Q")
 
-            while True:  # shared condition here!!
-
+            while True:
                 while len(data) < payloadSize:
                     packet = self.clientSocket.recv(4 * 1024)
                     if not packet:
@@ -189,7 +187,6 @@ class SocketProcess(Process):
                     # we drop the frame if signs detector is not activated
                     continue
 
-                # print("Processing frame..")
                 try:
                     if self.framesQueue.full():
                         # we don't care about older frames if the queue is full
@@ -214,7 +211,6 @@ class SocketProcess(Process):
                     pass
                 else:
                     command = self.commandsQueue.get()
-                    # print(command)
                     message = struct.pack("B", len(command)) + command
                     self.clientSocket.sendall(message)
         except socket.error as e:
@@ -234,20 +230,21 @@ def detectAndClassifySign(framesQueue, byteCommandsQueue, strCommandsQueue,
                           imgSize=(160, 128)):
     print("Inference started!")
     # Load the VGG model
-    vggTrainedModel = tf.keras.models.load_model(ROOT / 'weights/model_vgg_training_v2.h5')
+    vggTrainedModel = tf.keras.models.load_model(ROOT / 'weights/vggnet_weights.h5')
     vggTrainedModel.trainable = False
     # Load the YOLO model
     device = select_device('0')
-    model = DetectMultiBackend(ROOT / 'weights/best.pt', device=device, dnn=False, data=ROOT / 'config.yaml')
-    stride, names, pt = model.stride, model.names, model.pt
+    yoloTrainedModel = DetectMultiBackend(ROOT / 'weights/yolo_weights.pt', device=device, dnn=False,
+                                          data=ROOT / 'config.yaml')
+    stride, names, pt = yoloTrainedModel.stride, yoloTrainedModel.names, yoloTrainedModel.pt
     imgSize = check_img_size(imgSize, s=stride)  # check image size
 
     # Dataloader
     cudnn.benchmark = True  # set True to speed up constant image size inference
 
-    model.warmup(imgsz=(1 if pt else 1, 3, *imgSize))  # warmup
+    yoloTrainedModel.warmup(imgsz=(1 if pt else 1, 3, *imgSize))  # warmup
     lastPrediction = None
-    while True:  # Condition here!
+    while True:
         startTime = time.time()
         if detectorStartedEvent.is_set() and not framesQueue.empty():
             # print("Detecting signs from frame..")
@@ -267,8 +264,10 @@ def detectAndClassifySign(framesQueue, byteCommandsQueue, strCommandsQueue,
             im /= 255  # 0 - 255 to 0.0 - 1.0
             if len(im.shape) == 3:
                 im = im[None]  # expand for batch dim
-            predictions = model(im, augment=False,
-                                visualize=False)  # We don't want to augment inference or visualize features at this moment
+
+            # We don't want to augment inference or visualize features at this moment
+            predictions = yoloTrainedModel(im, augment=False,
+                                           visualize=False)
 
             # NMS
             predictions = non_max_suppression(predictions, conf_thres=0.25, iou_thres=0.45, max_det=10)
@@ -280,12 +279,12 @@ def detectAndClassifySign(framesQueue, byteCommandsQueue, strCommandsQueue,
                 auxImgForCropping = originalImg.copy()  # for save_crop
                 annotator = Annotator(originalImg, line_width=1, example=str(names))
                 if len(det):
-                    # Rescale boxes from img_size to im0 size
+                    # Rescale boxes from img_size to img size
                     det[:, :4] = scale_coords(im.shape[2:], det[:, :4], originalImg.shape).round()
 
                     # Write results
                     for *xyxy, conf, cls in reversed(det):
-                        c = int(cls)  # integer class
+                        c = int(cls)
                         label = f'{names[c]} {conf:.2f}'
                         annotator.box_label(xyxy, label, color=colors(c, True))
 
@@ -304,12 +303,13 @@ def detectAndClassifySign(framesQueue, byteCommandsQueue, strCommandsQueue,
                         signPreprocessed = preprocessing(signExtracted)
 
                         signPreprocessed = signPreprocessed.reshape(1, 32, 32, 1)
-                        # PREDICT IMAGE
+                        # Classify frame with VGGNet
                         vggPredictions = vggTrainedModel.predict(signPreprocessed)
                         classIndex = vggTrainedModel.predict_classes(signPreprocessed)
                         probabilityValue = np.amax(vggPredictions)
                         if probabilityValue > 0.85:
-                            if lastPrediction is None or lastPrediction != classIndex:  # add in queue different detections
+                            if lastPrediction is None or lastPrediction != classIndex:  # add in queue just different
+                                # detections
                                 lastPrediction = classIndex
                                 aux = getCommandEncoding(classIndex, 0)
                                 if aux != b'\x00\x00':
@@ -331,12 +331,7 @@ def detectAndClassifySign(framesQueue, byteCommandsQueue, strCommandsQueue,
                             (128, 160, 3))
                         np.copyto(temp1, originalImg)
                         writeYoloFrameCondition.notify_all()
-                        # try:
-                        #     if processed_frame_queue.full():
-                        #         processed_frame_queue.get_nowait()
-                        #     processed_frame_queue.put(im0)
-                        # except queue.Empty as e:
-                        #     pass
+
             # print(f'FPS:{ 1.0 / (time.time() - startTime)}  SIZE: {frames_queue.qsize()}')  # FPS = 1 / time to
             # process loop
 
@@ -350,7 +345,6 @@ def handler(signal_received, frame):
 
 def main():
     print("Test started!")
-    # detectAndClassifySign()
     signal(SIGINT, handler)
 
     framesQ = Queue(50)
@@ -361,7 +355,7 @@ def main():
     socketReceiverProcess = SocketProcess(framesQueue=framesQ,
                                           commandsQueue=commandsQ, detectorStartedEvent=detectorStartedEvent)
 
-    # Declare RawArray for testing this!!
+    # Declare RawArray for testing this, like in GUI.py !!!
     classifierProcess = Process(target=detectAndClassifySign, args=(framesQ, commandsQ, strCommandsQ,
                                                                     detectorStartedEvent,
                                                                     showProcessedFrameEvent))
@@ -383,7 +377,6 @@ def main():
             framesQ.join_thread()
             commandsQ.join_thread()
             strCommandsQ.join_thread()
-            # Terminating main process
             exit(0)
 
 
