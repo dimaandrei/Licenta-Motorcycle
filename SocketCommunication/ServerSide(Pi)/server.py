@@ -44,50 +44,50 @@ class StreamingOutput():
 
 
 class SerialComm(Process):
-    def __init__(self, arduino_comm_q, serial_port='/dev/serial0', baud_rate=9600):
+    def __init__(self, arduinoCommQ, serial_port='/dev/serial0', baud_rate=9600):
         super(SerialComm, self).__init__()
-        self.arduino_comm_q = arduino_comm_q
-        self.serial_comm = serial.Serial(serial_port, baud_rate, timeout=1)
+        self.arduinoCommQ = arduinoCommQ
+        self.serialComm = serial.Serial(serial_port, baud_rate, timeout=1)
 
         # Clear DTR, wait one second, flush input, then set DTR.
 
-        self.serial_comm.setDTR(False)
+        self.serialComm.setDTR(False)
         time.sleep(1)
-        self.serial_comm.flushInput()
-        self.serial_comm.setDTR(True)
+        self.serialComm.flushInput()
+        self.serialComm.setDTR(True)
         time.sleep(2)
-        self.run_flag=True
+        self.runFlag=True
         
     def run(self) -> None:
-        self.serial_comm.reset_input_buffer()
-        while self.run_flag:
-            if self.arduino_comm_q.empty():
+        self.serialComm.reset_input_buffer()
+        while self.runFlag:
+            if self.arduinoCommQ.empty():
                 continue
 
-            command = self.arduino_comm_q.get()
+            command = self.arduinoCommQ.get()
             print(command)
             if len(command) == 2:
-                self.serial_comm.write(command)
+                self.serialComm.write(command)
             else:
                 print("Something went wrong! Invalid command!")
 
     def terminate(self) -> None:
         print("\tExiting serial comm..")
-        self.run_flag=False
+        self.runFlag=False
         super(SerialComm, self).terminate()
 
 class FrontObstacleDetector(Process):
-    def __init__(self, arduino_comm_q):
+    def __init__(self, arduinoCommQ):
         super(FrontObstacleDetector, self).__init__()
-        self.arduino_comm_q = arduino_comm_q
+        self.arduinoCommQ = arduinoCommQ
 
-        self.run_flag=True
+        self.runFlag=True
 
     def run(self) -> None:
         print("Front obstacles detector activated!")
         startTime = time.time()
         stopTime = time.time()
-        while self.run_flag:
+        while self.runFlag:
             # set Trigger to HIGH
             GPIO.output(GPIO_TRIGGER, True)
 
@@ -111,27 +111,26 @@ class FrontObstacleDetector(Process):
             print(distance)
             if distance < 25:
                 print("Obstacle collision danger!")
-                if commands_queue.full():
-                    commands_queue.get_nowait()
-                commands_queue.put(b'\x02\x00')
+                if commandsQueue.full():
+                    commandsQueue.get_nowait()
+                commandsQueue.put(b'\x02\x00')
             time.sleep(1)
 
     def terminate(self) -> None:
-        self.run_flag=False
+        self.runFlag=False
         print("\tExiting front obstacles detector..")
         super(FrontObstacleDetector, self).terminate()
 
 
-
 class SingleTCPHandler(socketserver.BaseRequestHandler):
-    payload_size = struct.calcsize("B")
+    payloadSize = struct.calcsize("B")
     recievingData = True
     def handle(self):
         try:
             srcaddr, srcport = self.request.getpeername()
             print("Connection from {}:{}".format(srcaddr, srcport))
-            self.thread = threading.Thread(target=self.recieveData, args=[self.request])
-            self.thread.start()
+            self.receiveDataThread = threading.Thread(target=self.receiveData, args=[self.request])
+            self.receiveDataThread.start()
             while True:
                 with output.condition:
                     output.condition.wait()
@@ -140,44 +139,43 @@ class SingleTCPHandler(socketserver.BaseRequestHandler):
                     message = struct.pack("Q",len(a))+a
                     self.request.sendall(message)
         except socket.error as e:
-            print(f'Socket exception! Probably client socket was closed!')
-            # print(f'Errpr: {e}')
+            print(f'Socket exception! Probably client socket was closed! \nErr: {e}')
  
-    def recieveData(self, request):
+    def receiveData(self, request):
         data = b''
         try:
             while self.recievingData:
                 print("Waiting for data: ", sep= '')
-                while len(data) < self.payload_size:
+                while len(data) < self.payloadSize:
                     packet = request.recv(128)
                     if not packet: break
                     data+=packet
 
-                packed_msg_size = data[:self.payload_size]
-                data = data[self.payload_size:]
-                msg_size = struct.unpack("B",packed_msg_size)[0]
+                packedMsgSize = data[:self.payloadSize]
+                data = data[self.payloadSize:]
+                msgSize = struct.unpack("B",packedMsgSize)[0]
 
-                while len(data) < msg_size:
+                while len(data) < msgSize:
                     data += request.recv(128)
 
-                command = data[:msg_size]
-                data = data[msg_size:]
+                command = data[:msgSize]
+                data = data[msgSize:]
 
                 if command ==  b'\x04\x01':
                     detectFrontObstaclesEvent.set()
                 elif command ==  b'\x04\x00':
                     detectFrontObstaclesEvent.clear()
 
-                if commands_queue.full():
-                    commands_queue.get_nowait()
-                commands_queue.put(command)
+                if commandsQueue.full():
+                    commandsQueue.get_nowait()
+                commandsQueue.put(command)
         except socket.error as e:
-            print(f'Socket exception! Probably client socket was closed!')
-            # print(f'Errpr: {e}')
-
+            print(f'Socket exception! Probably client socket was closed! \nErr:{e}')
+            
     def finish(self) -> None:
         self.recievingData = False
         return super().finish()
+
 
 class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
@@ -189,23 +187,23 @@ class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 def cameraThread():
     global output
-    with picamera.PiCamera(resolution='320x256', framerate=24) as camera:
-        #Uncomment the next line to change your Pi's Camera rotation (in degrees)
+    with picamera.PiCamera(resolution='160x128', framerate=24) as camera:
         camera.rotation = 180
         camera.start_recording(output, format='mjpeg')
         try:
-            address = ('192.168.0.187', 10050)
-            #address = ('192.168.0.139', 10050)
+            # address = ('192.168.32.161', 10050)# phone
+            address = ('192.168.0.187', 10050) # home
+            # address = ('192.168.0.139', 10050) PI4
+
             server = StreamingServer(address, SingleTCPHandler)
             server.serve_forever()
         finally:
             camera.stop_recording()
             server.shutdown()
-            print("here")
 
 
 output = StreamingOutput()
-commands_queue = Queue()
+commandsQueue = Queue()
 closeEvent = Event()
 detectFrontObstaclesEvent = Event() # to activate
 
@@ -214,38 +212,36 @@ def handler(signal_received, frame):
 
 def main():
     signal(SIGINT, handler)
-    camera_thread = threading.Thread(target=cameraThread)
-    camera_thread.daemon = True
-    camera_thread.start()
-    print('Server loop running in thread: ', camera_thread.name)
-    serial_comm = SerialComm(arduino_comm_q=commands_queue)
-    serial_comm.start()
+    cameraThread = threading.Thread(target=cameraThread)
+    cameraThread.daemon = True
+    cameraThread.start()
+    print('Server loop running in thread: ', cameraThread.name)
+    serialComm = SerialComm(arduinoCommQ=commandsQueue)
+    serialComm.start()
 
-    frontObstacleDetector_process = None
+    frontObstacleDetectorProcess = None
 
     try:
         while True:
-            if detectFrontObstaclesEvent.is_set() and frontObstacleDetector_process is None:
-                frontObstacleDetector_process = FrontObstacleDetector(arduino_comm_q=commands_queue)
-                frontObstacleDetector_process.start()
-                print("here")
-            elif frontObstacleDetector_process is not None and not detectFrontObstaclesEvent.is_set():
-                frontObstacleDetector_process.terminate()
-                frontObstacleDetector_process = None
-                print("dima")
+            if detectFrontObstaclesEvent.is_set() and frontObstacleDetectorProcess is None:
+                frontObstacleDetectorProcess = FrontObstacleDetector(arduinoCommQ=commandsQueue)
+                frontObstacleDetectorProcess.start()
+            
+            elif frontObstacleDetectorProcess is not None and not detectFrontObstaclesEvent.is_set():
+                frontObstacleDetectorProcess.terminate()
+                frontObstacleDetectorProcess = None
 
             if closeEvent.is_set():
                 break
     finally:
         print("Exiting all child processes..")
-        serial_comm.terminate()
-        if frontObstacleDetector_process is not None and frontObstacleDetector_process.is_alive():
-            frontObstacleDetector_process.terminate()
-        commands_queue.close()
+        serialComm.terminate()
+        if frontObstacleDetectorProcess is not None and frontObstacleDetectorProcess.is_alive():
+            frontObstacleDetectorProcess.terminate()
+        commandsQueue.close()
         GPIO.cleanup()
-        # Terminating main process
-
     exit(0)
+
 
 if __name__ == '__main__':
     main()
