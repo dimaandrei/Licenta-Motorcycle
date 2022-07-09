@@ -33,8 +33,6 @@ class StreamingOutput():
 
     def write(self, buf):
         if buf.startswith(b'\xff\xd8'):
-            # New frame, copy the existing buffer's content and notify all
-            # clients it's available
             self.buffer.truncate()
             with self.condition:
                 self.frame = self.buffer.getvalue()
@@ -49,7 +47,7 @@ class SerialComm(Process):
         self.arduinoCommQ = arduinoCommQ
         self.serialComm = serial.Serial(serial_port, baud_rate, timeout=1)
 
-        # Clear DTR, wait one second, flush input, then set DTR.
+        # Clear Data Terminal Ready, wait one second, flush input, then set it.
 
         self.serialComm.setDTR(False)
         time.sleep(1)
@@ -106,8 +104,7 @@ class FrontObstacleDetector(Process):
             # time difference between start and arrival
             timeElapsed = stopTime - startTime
             # multiply with the sonic speed (34300 cm/s)
-            # and divide by 2, because there and back
-            distance = (timeElapsed * 34300) / 2
+            distance = timeElapsed * 34300 / 2
             print(distance)
             if distance < 25:
                 print("Obstacle collision danger!")
@@ -185,7 +182,7 @@ class StreamingServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         socketserver.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
 
-def cameraThread():
+def cameraStreamingThread():
     global output
     with picamera.PiCamera(resolution='160x128', framerate=24) as camera:
         camera.rotation = 180
@@ -212,7 +209,7 @@ def handler(signal_received, frame):
 
 def main():
     signal(SIGINT, handler)
-    cameraThread = threading.Thread(target=cameraThread)
+    cameraThread = threading.Thread(target=cameraStreamingThread)
     cameraThread.daemon = True
     cameraThread.start()
     print('Server loop running in thread: ', cameraThread.name)

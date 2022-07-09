@@ -32,10 +32,10 @@ def chooseClassType(signType):
         return 3
 
 
-def GTSDBToYoloFormat(full_path_to_gt_file, full_path_to_save_dir, imgsz):
+def GTSDBToYoloFormat(full_path_to_gt_file, full_path_to_save_dir, imgSize):
     lines = None
-    x_center_scaling = imgsz[0] * 2  # width of image div by 2 to find x coordinate of the center of bounding box
-    y_center_scaling = imgsz[1] * 2  # height of image div by 2 to find y coordinate of the center of bounding box
+    x_center_scaling = imgSize[0] * 2  # width of image div by 2 to find x coordinate of the center of bounding box
+    y_center_scaling = imgSize[1] * 2  # height of image div by 2 to find y coordinate of the center of bounding box
 
     with open(full_path_to_gt_file) as file:
         lines = file.readlines()
@@ -49,8 +49,8 @@ def GTSDBToYoloFormat(full_path_to_gt_file, full_path_to_save_dir, imgsz):
             # we calculate the center of the bounding box, the width and the height of it
             x_center = (int(line[1]) + int(line[3])) / x_center_scaling
             y_center = (int(line[2]) + int(line[4])) / y_center_scaling
-            width = (int(line[3]) - int(line[1])) / imgsz[0]
-            height = (int(line[4]) - int(line[2])) / imgsz[1]
+            width = (int(line[3]) - int(line[1])) / imgSize[0]
+            height = (int(line[4]) - int(line[2])) / imgSize[1]
             bb_data.write(f'{chooseClassType(int(line[5]))} {x_center} {y_center} {width} {height}{os.linesep}')
 
     names = os.listdir(full_path_to_save_dir)
@@ -99,23 +99,22 @@ classes = ['Prohibitory', 'Mandatory', 'Danger', 'Other']
 prohibitory = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16]  # (circular, white ground with red border)
 mandatory = [33, 34, 35, 36, 37, 38, 39, 40]  # (circular, blue ground)
 danger = [11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]  # (triangular, white ground with red border)
-# other = the rest of signs (e,.g.
+# other = the rest of signs like STOP, PRIORITY ROAD
 
-# Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    # removeFilesFromFolder(PATH_TO_YOLO_TRAIN_SAVE_DIR)
-    # removeFilesFromFolder(PATH_TO_YOLO_TEST_SAVE_DIR)
-    # img_sz = findImgSize(PATH_TO_TRAIN_DOWNLOADED_DATASET + os.path.sep + '00000.ppm')  # we choose the first image
-    #
-    # # Generate YOLO format training data
-    # GTSDBToYoloFormat(PATH_TO_TRAIN_DOWNLOADED_DATASET + os.path.sep + 'gt.txt', PATH_TO_YOLO_TRAIN_SAVE_DIR, img_sz)
-    # ppmToJpgFormat(PATH_TO_TRAIN_DOWNLOADED_DATASET, PATH_TO_YOLO_TRAIN_SAVE_DIR,
-    #                PATH_TO_TXT_FILE + os.path.sep + 'train.txt')
-    #
-    # # Generate YOLO format testing data
-    # ppmToJpgFormat(PATH_TO_TEST_DOWNLOADED_DATASET, PATH_TO_YOLO_TEST_SAVE_DIR,
-    #                PATH_TO_TXT_FILE + os.path.sep + 'test.txt')
-    #
-    # # Save classes to file
-    # writeClassesFile(PATH_TO_TXT_FILE, list_of_classes=classes)
+    removeFilesFromFolder(PATH_TO_YOLO_TRAIN_SAVE_DIR)
+    removeFilesFromFolder(PATH_TO_YOLO_TEST_SAVE_DIR)
+    img_sz = findImgSize(PATH_TO_TRAIN_DOWNLOADED_DATASET + os.path.sep + '00000.ppm')  # we choose the first image
+
+    # Generate YOLO format training data
+    GTSDBToYoloFormat(PATH_TO_TRAIN_DOWNLOADED_DATASET + os.path.sep + 'gt.txt', PATH_TO_YOLO_TRAIN_SAVE_DIR, img_sz)
+    ppmToJpgFormat(PATH_TO_TRAIN_DOWNLOADED_DATASET, PATH_TO_YOLO_TRAIN_SAVE_DIR,
+                   PATH_TO_TXT_FILE + os.path.sep + 'train.txt')
+
+    # Generate YOLO format testing data
+    ppmToJpgFormat(PATH_TO_TEST_DOWNLOADED_DATASET, PATH_TO_YOLO_TEST_SAVE_DIR,
+                   PATH_TO_TXT_FILE + os.path.sep + 'test.txt')
+
+    # Save classes to file
+    writeClassesFile(PATH_TO_TXT_FILE, list_of_classes=classes)
     writeToTest()

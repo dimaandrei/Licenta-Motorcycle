@@ -2,16 +2,6 @@ import cv2
 import numpy as np
 import tensorflow as tf
 
-'''###########Constants###########'''
-
-frameWidth = 640  # CAMERA RESOLUTION
-frameHeight = 480
-brightness = 180
-threshold = 0.75  # PROBABILITY THRESHOLD
-font = cv2.FONT_HERSHEY_SIMPLEX
-
-######################################
-
 
 def grayscale(in_img):
     return cv2.cvtColor(in_img, cv2.COLOR_BGR2GRAY)
@@ -63,16 +53,14 @@ def getClassName(classNo):
 
 if __name__ == '__main__':
 
-    # SET UP THE VIDEO CAMERA
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    # SET UP CAMERA
     cap = cv2.VideoCapture(0)
-    cap.set(3, frameWidth)
-    cap.set(4, frameHeight)
-    cap.set(10, brightness)
+    cap.set(3, 640)  # width
+    cap.set(4, 480)  # height
+    cap.set(10, 180)  # brightness
 
-    # tf.device('/gpu:0')
-    model = tf.keras.models.load_model('./Models/model_vgg_training_v2.h5')
-
-    # model.summary()
+    model = tf.keras.models.load_model('./Models/trained_model_name.h5')
 
     while True:
         # READ IMAGE
@@ -91,7 +79,7 @@ if __name__ == '__main__':
         predictions = model.predict(img)
         classIndex = model.predict_classes(img)
         probabilityValue = np.amax(predictions)
-        if probabilityValue > threshold:
+        if probabilityValue > 0.75:
             cv2.putText(imgOriginal, str(classIndex) + " " + str(getClassName(classIndex)), (120, 35), font, 0.75,
                         (0, 0, 255), 2, cv2.LINE_AA)
             cv2.putText(imgOriginal, str(round(probabilityValue * 100, 2)) + "%", (180, 75), font, 0.75, (0, 0, 255), 2,

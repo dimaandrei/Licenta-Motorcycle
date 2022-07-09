@@ -95,11 +95,11 @@ def getCommandEncoding(commandNo, execValue):
         return b'\x02\x40'
     elif commandNo == 2:  # 70km/h - speed = 0
         return b'\x02\x50'
-    elif commandNo == 8:  # turn right ahead
+    elif commandNo == 8:  # Turn right ahead
         return b'\x03\x5C'
-    elif commandNo == 9:  # turn left ahead 
+    elif commandNo == 9:  # Turn left ahead
         return b'\x03\x7C'
-    elif commandNo == 10:  # go straight ahead
+    elif commandNo == 10:  # Go straight ahead
         return b'\x03\x6C'
 
     # Starting with this value these are `admin-manual` commands
@@ -145,9 +145,9 @@ def getCommandEncoding(commandNo, execValue):
 
 
 # address = ('192.168.32.161', 10050)
-
+# address = ('192.168.0.187', 10050)
 class SocketProcess(Process):
-    def __init__(self, framesQueue, commandsQueue, detectorStartedEvent, host='192.168.0.187', port=10050):
+    def __init__(self, framesQueue, commandsQueue, detectorStartedEvent, host='192.168.32.161', port=10050):
         super(SocketProcess, self).__init__()
         self.clientSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.hostIp = host

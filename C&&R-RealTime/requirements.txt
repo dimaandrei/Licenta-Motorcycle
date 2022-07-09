@@ -1,4 +1,4 @@
-# Dima req
+# Requirements pentru yolo + alte biblioteci adaugate de mine
 # pip install -r requirements.txt
 
 # Base ----------------------------------------
@@ -16,7 +16,7 @@ tqdm>=4.41.0
 
 # Logging -------------------------------------
 tensorboard~=2.0.2
-# wandb
+
 
 # Plotting ------------------------------------
 pandas>=1.1.4
