@@ -90,17 +90,17 @@ def getCommandEncoding(commandNo, execValue):
     elif commandNo == 7:  # No entry - speed = 0
         return b'\x02\x00'
     elif commandNo == 0:  # 30km/h - speed = 0
-        return b'\x02\x30'
+        return b'\x02\x25'
     elif commandNo == 1:  # 50km/h - speed = 0
-        return b'\x02\x40'
+        return b'\x02\x30'
     elif commandNo == 2:  # 70km/h - speed = 0
-        return b'\x02\x50'
+        return b'\x02\x35'
     elif commandNo == 8:  # Turn right ahead
-        return b'\x03\x5C'
+        return b'\x03\x59'
     elif commandNo == 9:  # Turn left ahead
-        return b'\x03\x7C'
+        return b'\x03\x79'
     elif commandNo == 10:  # Go straight ahead
-        return b'\x03\x6C'
+        return b'\x03\x6B'
 
     # Starting with this value these are `admin-manual` commands
     elif commandNo == 20:  # Turn on PID algorithm
@@ -347,7 +347,7 @@ def main():
     print("Test started!")
     signal(SIGINT, handler)
 
-    framesQ = Queue(50)
+    framesQ = Queue(13)
     commandsQ = Queue()
     strCommandsQ = Queue()
     detectorStartedEvent = Event()

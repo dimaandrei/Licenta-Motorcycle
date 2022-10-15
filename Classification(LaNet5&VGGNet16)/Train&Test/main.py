@@ -229,32 +229,6 @@ class Network:
         plt.xticks(rotation=45)
         plt.show()
 
-    def trainWithGenerator(self):
-        print(self.model.summary())
-        self.history = self.model.fit_generator(self.dataGen.flow(self.dataset_train,
-                                                                  self.labels_train,
-                                                                  batch_size=64),
-                                                steps_per_epoch=2000, epochs=30,
-                                                validation_data=(self.dataset_valid,
-                                                                 self.labels_valid),
-                                                shuffle=1)
-        plt.figure(1)
-        plt.plot(self.history.history['loss'])
-        plt.plot(self.history.history['val_loss'])
-        plt.legend(['training', 'validation'])
-        plt.title('loss')
-        plt.xlabel('epoch')
-        plt.figure(2)
-        plt.plot(self.history.history['accuracy'])
-        plt.plot(self.history.history['val_accuracy'])
-        plt.legend(['training', 'validation'])
-        plt.title('Accuracy')
-        plt.xlabel('epoch')
-        plt.show()
-        plt.show(block=True)
-        plt.interactive(False)
-        # plt.savefig()
-
     def storeTheModel(self):
         if self.useVGG:
             self.model.save('./Models/trained_vggNet.h5')

@@ -112,7 +112,7 @@ class Window(QMainWindow):
         self.setTheme("lightTheme")
         self.angleSliderValue = 108  # Middle
 
-        self.piFramesQ = Queue(25)
+        self.piFramesQ = Queue(13)
         self.binCommandsQ = Queue()
         self.strCommandsQ = Queue()
 
@@ -166,8 +166,8 @@ class Window(QMainWindow):
         self.angleSlider.sliderReleased.connect(self.sliderReleasedCallback)
 
     def goForward_pressed(self):
-        aux = getCommandEncoding(24, 108)
-        self.addUserCommand(aux)
+        # aux = getCommandEncoding(24, 107)
+        # self.addUserCommand(aux)
         aux = getCommandEncoding(22, self.speedSlider.value())
         self.addUserCommand(aux)
 
@@ -176,8 +176,8 @@ class Window(QMainWindow):
         self.addUserCommand(aux)
 
     def goBackwards_pressed(self):
-        aux = getCommandEncoding(24, 108)
-        self.addUserCommand(aux)
+        # aux = getCommandEncoding(24, 107)
+        # self.addUserCommand(aux)
         aux = getCommandEncoding(23, self.speedSlider.value())
         self.addUserCommand(aux)
 
@@ -190,46 +190,32 @@ class Window(QMainWindow):
             self.goForward_pressed()
         else:
             self.goBackwards_pressed()
-        self.backwardsTurn_c.setEnabled(False)
-        for i in reversed(range(108 - self.rateOfTurnSlider.value(), self.angleSlider.value(), 2)):  # 106
-            print(i)
-            aux = getCommandEncoding(24, i)
-            self.addUserCommand(aux)
-            sleep(0.1)
+        aux = getCommandEncoding(24, 103 - self.rateOfTurnSlider.value())
+        self.addUserCommand(aux)
 
     def goToTheRight_released(self):
         if not self.backwardsTurn_c.isChecked():
             self.goForward_released()
         else:
             self.goBackwards_released()
-        self.backwardsTurn_c.setEnabled(True)
-        for i in range(108 - self.rateOfTurnSlider.value() + 2, self.angleSlider.value()+2, 2):  # 82 && 108
-            aux = getCommandEncoding(24, i)
-            self.addUserCommand(aux)
-            sleep(0.1)
+        aux = getCommandEncoding(24, 107)
+        self.addUserCommand(aux)
 
     def goToTheLeft_pressed(self):
         if not self.backwardsTurn_c.isChecked():
             self.goForward_pressed()
         else:
             self.goBackwards_pressed()
-        self.backwardsTurn_c.setEnabled(False)
-        for i in range(self.angleSlider.value() + 2, 108 + self.rateOfTurnSlider.value()+2, 2):  # 110 && 136
-            print(i)
-            aux = getCommandEncoding(24, i)
-            self.addUserCommand(aux)
-            sleep(0.1)
+        aux = getCommandEncoding(24, 107 + self.rateOfTurnSlider.value())
+        self.addUserCommand(aux)
 
     def goToTheLeft_released(self):
         if not self.backwardsTurn_c.isChecked():
             self.goForward_released()
         else:
             self.goBackwards_released()
-        self.backwardsTurn_c.setEnabled(True)
-        for i in reversed(range(self.angleSlider.value(), 108 + self.rateOfTurnSlider.value(), 2)):  # 108 && 134
-            aux = getCommandEncoding(24, i)
-            self.addUserCommand(aux)
-            sleep(0.1)
+        aux = getCommandEncoding(24, 107)
+        self.addUserCommand(aux)
 
     def addUserCommand(self, command):
         if self.binCommandsQ.full():

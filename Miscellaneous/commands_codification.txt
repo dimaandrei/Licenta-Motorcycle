@@ -19,3 +19,12 @@
     - go backwards: o1=0x12, o2= 0xxx(-255;-1)
 
     - turning: o1=0x03, o2= 0xxx(78 - max right; 138 - max left)
+    
+    
+    network={
+     ssid="Tp+link"
+     psk="anca1234"
+     scan_ssid=1
+     id_str="home"
+     priority=2
+}
